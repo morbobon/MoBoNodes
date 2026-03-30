@@ -1,60 +1,64 @@
 import os
 import re
-from datetime import datetime
 
 
 def resolve_template(template, variables):
     """
     Replace {variable} placeholders in the template with values from the variables dict.
-    Supports {date:FORMAT} for strftime formatting.
-    Unknown or empty variables are replaced with empty string.
+    ComfyUI's native %tokens% (like %date:FORMAT% and %NodeName.widget%) pass through
+    untouched — SaveImage resolves those downstream.
+    Unknown or empty {variables} are replaced with empty string.
     """
-    now = datetime.now()
-
     def replacer(match):
         key = match.group(1)
-
-        # Handle {date:FORMAT} — strftime pattern
-        if key.startswith("date:"):
-            fmt = key[5:]
-            return now.strftime(fmt)
-
-        # Handle {time:FORMAT}
-        if key.startswith("time:"):
-            fmt = key[5:]
-            return now.strftime(fmt)
-
-        # Lookup in variables
         val = variables.get(key, "")
         if val is None:
             return ""
         return str(val)
 
-    # Match {word} or {word:anything}
+    # Only match {word} — not %percent% tokens
     result = re.sub(r"\{([^}]+)\}", replacer, template)
     return result
 
 
 def clean_filename(s):
-    """Remove characters that are problematic in filenames."""
+    """Clean up a composed filename: collapse separators, strip edges."""
     # Replace path separators with underscores
     s = s.replace("/", "_").replace("\\", "_")
-    # Remove other problematic chars
+    # Remove problematic chars
     s = re.sub(r'[<>:"|?*]', '', s)
-    # Collapse multiple underscores
+    # Collapse multiple underscores/hyphens
     s = re.sub(r'_+', '_', s)
-    # Strip leading/trailing underscores
-    s = s.strip('_')
+    s = re.sub(r'-+', '-', s)
+    # Strip leading/trailing separators and whitespace
+    s = s.strip('_- ')
     return s
 
 
 class MoBo_FilenameBuilder:
+    """
+    Compose output filenames from input parts using a {variable} template.
+
+    Template variables:
+        {folder}   — folder input, path separators → underscores
+        {name}     — filename input, extension stripped
+        {ext}      — extension from filename (without dot)
+        {prefix}   — prefix input
+        {suffix}   — suffix input
+        {width}    — width input (omitted if 0)
+        {height}   — height input (omitted if 0)
+        {res}      — shorthand for widthxheight (omitted if either is 0)
+
+    ComfyUI native tokens like %date:yyyy_MM_dd% pass through unchanged
+    for SaveImage to resolve.
+    """
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
                 "template": ("STRING", {
-                    "default": "{folder}_{name}_{date}",
+                    "default": "{folder}_{name}",
                     "multiline": True,
                 }),
             },
@@ -98,8 +102,6 @@ class MoBo_FilenameBuilder:
         # Build resolution string
         res = f"{width}x{height}" if width > 0 and height > 0 else ""
 
-        now = datetime.now()
-
         # Variable lookup
         variables = {
             "folder": folder_clean,
@@ -110,14 +112,12 @@ class MoBo_FilenameBuilder:
             "width": str(width) if width > 0 else "",
             "height": str(height) if height > 0 else "",
             "res": res,
-            "date": now.strftime("%Y-%m-%d"),
-            "time": now.strftime("%H-%M-%S"),
         }
 
-        # Resolve the template
+        # Resolve {variables} — %tokens% pass through for SaveImage
         result = resolve_template(template, variables)
 
-        # Clean up the result
+        # Clean up (but preserve %tokens%)
         result = clean_filename(result)
 
         return (result, folder)
