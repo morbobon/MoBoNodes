@@ -7,9 +7,6 @@ from .nodes.filename_builder import MoBo_FilenameBuilder
 
 NODE_CLASS_MAPPINGS = {
     "LoadImageFromFolder": MoBo_FolderImageLoader,
-    "MoBo_LoadImageFromFolder": MoBo_FolderImageLoader,  # backward compat
-    "MoBo_FolderImageLoader": MoBo_FolderImageLoader,  # backward compat
-    "FolderImageLoader": MoBo_FolderImageLoader,  # backward compat
     "MoBo_ImageInfo": MoBo_ImageInfo,
     "MoBo_AspectRatio": MoBo_AspectRatio,
     "MoBo_CropToRatio": MoBo_CropToRatio,
@@ -19,9 +16,6 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageFromFolder": "Load Image from Folder",
-    "MoBo_LoadImageFromFolder": "Load Image from Folder",  # backward compat
-    "MoBo_FolderImageLoader": "Load Image from Folder",  # backward compat
-    "FolderImageLoader": "Load Image from Folder",  # backward compat
     "MoBo_ImageInfo": "Image Info",
     "MoBo_AspectRatio": "Aspect Ratio",
     "MoBo_CropToRatio": "Crop to Ratio",
