@@ -6,9 +6,10 @@ from .nodes.interactive_crop import MoBo_InteractiveCrop
 from .nodes.filename_builder import MoBo_FilenameBuilder
 
 NODE_CLASS_MAPPINGS = {
-    "MoBo_LoadImageFromFolder": MoBo_FolderImageLoader,
-    "MoBo_FolderImageLoader": MoBo_FolderImageLoader,  # backward compat (early MoBo workflows)
-    "FolderImageLoader": MoBo_FolderImageLoader,  # backward compat (pre-MoBo workflows)
+    "LoadImageFromFolder": MoBo_FolderImageLoader,
+    "MoBo_LoadImageFromFolder": MoBo_FolderImageLoader,  # backward compat
+    "MoBo_FolderImageLoader": MoBo_FolderImageLoader,  # backward compat
+    "FolderImageLoader": MoBo_FolderImageLoader,  # backward compat
     "MoBo_ImageInfo": MoBo_ImageInfo,
     "MoBo_AspectRatio": MoBo_AspectRatio,
     "MoBo_CropToRatio": MoBo_CropToRatio,
@@ -17,7 +18,8 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "MoBo_LoadImageFromFolder": "Load Image from Folder",
+    "LoadImageFromFolder": "Load Image from Folder",
+    "MoBo_LoadImageFromFolder": "Load Image from Folder",  # backward compat
     "MoBo_FolderImageLoader": "Load Image from Folder",  # backward compat
     "FolderImageLoader": "Load Image from Folder",  # backward compat
     "MoBo_ImageInfo": "Image Info",

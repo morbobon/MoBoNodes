@@ -4,7 +4,7 @@ app.registerExtension({
     name: "mobo.FolderImageLoader",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name !== "MoBo_LoadImageFromFolder" && nodeData.name !== "MoBo_FolderImageLoader" && nodeData.name !== "FolderImageLoader") return;
+        if (!["LoadImageFromFolder", "MoBo_LoadImageFromFolder", "MoBo_FolderImageLoader", "FolderImageLoader"].includes(nodeData.name)) return;
 
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {
