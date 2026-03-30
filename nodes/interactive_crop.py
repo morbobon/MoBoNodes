@@ -1,12 +1,34 @@
 import torch
-import numpy as np
+
+
+STANDARD_RATIOS = {
+    "Freeform":  None,
+    "1:1":   (1, 1),
+    "4:3":   (4, 3),
+    "3:4":   (3, 4),
+    "5:4":   (5, 4),
+    "4:5":   (4, 5),
+    "3:2":   (3, 2),
+    "2:3":   (2, 3),
+    "16:9":  (16, 9),
+    "9:16":  (9, 16),
+    "16:10": (16, 10),
+    "10:16": (10, 16),
+    "21:9":  (21, 9),
+    "9:21":  (9, 21),
+    "2:1":   (2, 1),
+    "1:2":   (1, 2),
+    "Custom": None,
+}
+
+RATIO_NAMES = list(STANDARD_RATIOS.keys())
 
 
 class MoBo_InteractiveCrop:
     """
     Interactive crop node with a visual popup editor.
     The crop region is selected at edit time via a JS popup overlay.
-    The x, y, width, height widget values are set by the popup and used at execution time.
+    Supports ratio locking via built-in dropdown or external ratio input.
     """
 
     @classmethod
@@ -14,10 +36,16 @@ class MoBo_InteractiveCrop:
         return {
             "required": {
                 "image": ("IMAGE",),
+                "ratio": (RATIO_NAMES, {"default": "Freeform"}),
                 "crop_x": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1}),
                 "crop_y": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1}),
                 "crop_width": ("INT", {"default": 512, "min": 1, "max": 16384, "step": 1}),
                 "crop_height": ("INT", {"default": 512, "min": 1, "max": 16384, "step": 1}),
+            },
+            "optional": {
+                "ratio_override": ("STRING", {"default": "", "forceInput": True}),
+                "custom_ratio_w": ("INT", {"default": 16, "min": 1, "max": 100}),
+                "custom_ratio_h": ("INT", {"default": 9, "min": 1, "max": 100}),
             },
         }
 
@@ -26,7 +54,8 @@ class MoBo_InteractiveCrop:
     FUNCTION = "crop"
     CATEGORY = "MoBo Nodes"
 
-    def crop(self, image, crop_x, crop_y, crop_width, crop_height):
+    def crop(self, image, ratio, crop_x, crop_y, crop_width, crop_height,
+             ratio_override="", custom_ratio_w=16, custom_ratio_h=9):
         # image shape: [B, H, W, C]
         img_h = image.shape[1]
         img_w = image.shape[2]
@@ -48,6 +77,5 @@ class MoBo_InteractiveCrop:
         return (cropped, mask, x, y, w, h)
 
     @classmethod
-    def IS_CHANGED(s, image, crop_x, crop_y, crop_width, crop_height):
-        # Always re-execute when crop values change
+    def IS_CHANGED(s, image, ratio, crop_x, crop_y, crop_width, crop_height, **kwargs):
         return f"{crop_x},{crop_y},{crop_width},{crop_height}"

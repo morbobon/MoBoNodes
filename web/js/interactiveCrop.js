@@ -1,5 +1,20 @@
 import { app } from "../../scripts/app.js";
 
+const RATIO_MAP = {
+    "1:1": 1/1, "4:3": 4/3, "3:4": 3/4, "5:4": 5/4, "4:5": 4/5,
+    "3:2": 3/2, "2:3": 2/3, "16:9": 16/9, "9:16": 9/16,
+    "16:10": 16/10, "10:16": 10/16, "21:9": 21/9, "9:21": 9/21,
+    "2:1": 2/1, "1:2": 1/2,
+};
+
+function parseRatioString(str) {
+    if (!str || str === "Freeform") return null;
+    if (RATIO_MAP[str] !== undefined) return RATIO_MAP[str];
+    const m = str.match(/^(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)$/);
+    if (m) return parseFloat(m[1]) / parseFloat(m[2]);
+    return null;
+}
+
 app.registerExtension({
     name: "mobo.InteractiveCrop",
 
@@ -11,36 +26,51 @@ app.registerExtension({
             origOnNodeCreated?.apply(this, arguments);
 
             const node = this;
+            const ratioWidget = node.widgets.find(w => w.name === "ratio");
             const xWidget = node.widgets.find(w => w.name === "crop_x");
             const yWidget = node.widgets.find(w => w.name === "crop_y");
             const wWidget = node.widgets.find(w => w.name === "crop_width");
             const hWidget = node.widgets.find(w => w.name === "crop_height");
+            const customWWidget = node.widgets.find(w => w.name === "custom_ratio_w");
+            const customHWidget = node.widgets.find(w => w.name === "custom_ratio_h");
             if (!xWidget || !yWidget || !wWidget || !hWidget) return;
+
+            // Resolve the active ratio from widget, custom values, or override input
+            function getActiveRatio() {
+                // Check for ratio_override input (from Aspect Ratio node)
+                const overrideInput = node.inputs?.find(i => i.name === "ratio_override");
+                if (overrideInput && overrideInput.link) {
+                    // We can't read the value at edit time, but the widget stores the last value
+                    // The override is used at execution time; at edit time, fall back to dropdown
+                }
+
+                const sel = ratioWidget?.value || "Freeform";
+                if (sel === "Freeform") return null;
+                if (sel === "Custom") {
+                    const cw = customWWidget?.value || 16;
+                    const ch = customHWidget?.value || 9;
+                    return cw / ch;
+                }
+                return parseRatioString(sel);
+            }
 
             // "Select Crop Region" button
             node.addWidget("button", "✂️ Select Crop Region", null, () => {
-                // We need the image to display. Get it from the input connection.
                 const imageInput = node.inputs?.find(i => i.name === "image");
                 if (!imageInput || !imageInput.link) {
                     alert("Connect an image first before selecting crop region.");
                     return;
                 }
 
-                // Walk the link to find the source node
                 const linkInfo = app.graph.links[imageInput.link];
                 if (!linkInfo) return;
                 const sourceNode = app.graph.getNodeById(linkInfo.origin_id);
                 if (!sourceNode) return;
 
-                // Try to get a preview image URL from the source node
                 let imgUrl = null;
-
-                // Check if source node has imgs (preview images rendered on canvas)
                 if (sourceNode.imgs && sourceNode.imgs.length > 0) {
                     imgUrl = sourceNode.imgs[0].src;
                 }
-
-                // Fallback: check if the source is a LoadImage-style node with a widget value
                 if (!imgUrl) {
                     const imgWidget = sourceNode.widgets?.find(w => w.name === "image");
                     if (imgWidget && imgWidget.value) {
@@ -49,20 +79,20 @@ app.registerExtension({
                         imgUrl = `/view?filename=${encodeURIComponent(imgWidget.value)}&subfolder=${encodeURIComponent(sub)}&type=input`;
                     }
                 }
-
                 if (!imgUrl) {
-                    alert("Cannot preview the source image. Run the workflow once first to generate a preview, or connect to a Load Image node.");
+                    alert("Cannot preview the source image. Run the workflow once first, or connect to a Load Image node.");
                     return;
                 }
 
-                openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node);
+                const lockedRatio = getActiveRatio();
+                openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node, lockedRatio);
             });
         };
     },
 });
 
 
-function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
+function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node, lockedRatio) {
     // Create fullscreen overlay
     const overlay = document.createElement("div");
     overlay.style.cssText = `
@@ -78,17 +108,19 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
     const header = document.createElement("div");
     header.style.cssText = `
         display: flex; align-items: center; gap: 16px; padding: 12px 20px;
-        background: #1a1a2e; border-radius: 8px; margin-bottom: 12px;
+        background: #1a1a2e; border-radius: 8px; margin-bottom: 12px; flex-wrap: wrap;
     `;
     overlay.appendChild(header);
 
     const title = document.createElement("span");
-    title.textContent = "Drag to select crop region";
     title.style.cssText = "font-size: 14px; opacity: 0.8;";
+    title.textContent = lockedRatio
+        ? `Ratio locked: ${lockedRatio.toFixed(3)}`
+        : "Freeform crop";
     header.appendChild(title);
 
     const infoLabel = document.createElement("span");
-    infoLabel.style.cssText = "font-size: 13px; font-family: monospace; color: #66ccff; min-width: 260px;";
+    infoLabel.style.cssText = "font-size: 13px; font-family: monospace; color: #66ccff; min-width: 320px;";
     header.appendChild(infoLabel);
 
     const applyBtn = document.createElement("button");
@@ -117,7 +149,6 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
     img.crossOrigin = "anonymous";
 
     img.onload = () => {
-        // Fit image to viewport with padding
         const maxW = window.innerWidth - 60;
         const maxH = window.innerHeight - 120;
         const scale = Math.min(maxW / img.naturalWidth, maxH / img.naturalHeight, 1);
@@ -138,44 +169,40 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             h: hWidget.value || Math.floor(imgH / 2),
         };
 
-        // Clamp initial values
-        crop.x = Math.max(0, Math.min(crop.x, imgW - 1));
-        crop.y = Math.max(0, Math.min(crop.y, imgH - 1));
-        crop.w = Math.max(1, Math.min(crop.w, imgW - crop.x));
-        crop.h = Math.max(1, Math.min(crop.h, imgH - crop.y));
+        // If ratio locked, adjust initial crop to match ratio
+        if (lockedRatio) {
+            crop = fitCropToRatio(crop, lockedRatio, imgW, imgH);
+        }
 
-        let dragMode = null; // "draw", "move", "resize-*"
+        // Clamp initial values
+        clampCrop(crop, imgW, imgH);
+
+        let dragMode = null;
         let dragStart = null;
         let dragCropStart = null;
         const HANDLE_SIZE = 8;
 
-        function toDisplay(ix, iy) {
-            return [ix * scale, iy * scale];
-        }
-        function toImage(dx, dy) {
-            return [dx / scale, dy / scale];
-        }
+        function toDisplay(ix, iy) { return [ix * scale, iy * scale]; }
+        function toImage(dx, dy) { return [dx / scale, dy / scale]; }
 
         function updateInfo() {
-            infoLabel.textContent = `X: ${Math.round(crop.x)}  Y: ${Math.round(crop.y)}  W: ${Math.round(crop.w)}  H: ${Math.round(crop.h)}`;
+            const ratioStr = crop.w > 0 && crop.h > 0 ? (crop.w / crop.h).toFixed(3) : "—";
+            infoLabel.textContent = `X: ${Math.round(crop.x)}  Y: ${Math.round(crop.y)}  W: ${Math.round(crop.w)}  H: ${Math.round(crop.h)}  Ratio: ${ratioStr}`;
         }
 
         function draw() {
             ctx.clearRect(0, 0, dispW, dispH);
             ctx.drawImage(img, 0, 0, dispW, dispH);
 
-            // Dim outside crop region
+            // Dim outside
             ctx.fillStyle = "rgba(0,0,0,0.55)";
             const [cx, cy] = toDisplay(crop.x, crop.y);
-            const [cw, ch] = [crop.w * scale, crop.h * scale];
+            const cw = crop.w * scale;
+            const ch = crop.h * scale;
 
-            // Top
             ctx.fillRect(0, 0, dispW, cy);
-            // Bottom
             ctx.fillRect(0, cy + ch, dispW, dispH - cy - ch);
-            // Left
             ctx.fillRect(0, cy, cx, ch);
-            // Right
             ctx.fillRect(cx + cw, cy, dispW - cx - cw, ch);
 
             // Crop border
@@ -183,7 +210,7 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             ctx.lineWidth = 2;
             ctx.strokeRect(cx, cy, cw, ch);
 
-            // Rule of thirds lines
+            // Rule of thirds
             ctx.strokeStyle = "rgba(255,255,255,0.25)";
             ctx.lineWidth = 1;
             for (let i = 1; i <= 2; i++) {
@@ -196,23 +223,22 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             // Corner handles
             ctx.fillStyle = "#4a9eff";
             const hs = HANDLE_SIZE;
-            const corners = [
-                [cx, cy], [cx + cw, cy],
-                [cx, cy + ch], [cx + cw, cy + ch],
-            ];
-            for (const [hx, hy] of corners) {
+            for (const [hx, hy] of [[cx, cy], [cx + cw, cy], [cx, cy + ch], [cx + cw, cy + ch]]) {
                 ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
             }
 
-            // Edge midpoint handles
-            const edges = [
-                [cx + cw / 2, cy],         // top
-                [cx + cw / 2, cy + ch],     // bottom
-                [cx, cy + ch / 2],          // left
-                [cx + cw, cy + ch / 2],     // right
-            ];
-            for (const [hx, hy] of edges) {
-                ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+            // Edge handles (only when freeform — they don't make sense with ratio lock)
+            if (!lockedRatio) {
+                for (const [hx, hy] of [[cx + cw/2, cy], [cx + cw/2, cy + ch], [cx, cy + ch/2], [cx + cw, cy + ch/2]]) {
+                    ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+                }
+            }
+
+            // Ratio lock indicator
+            if (lockedRatio) {
+                ctx.fillStyle = "rgba(74, 158, 255, 0.8)";
+                ctx.font = "bold 11px sans-serif";
+                ctx.fillText("🔒", cx + 6, cy + 16);
             }
 
             updateInfo();
@@ -224,22 +250,21 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             const ch = crop.h * scale;
             const hs = HANDLE_SIZE + 4;
 
-            // Corner handles
+            // Corner handles (always available)
             if (Math.abs(mx - cx) < hs && Math.abs(my - cy) < hs) return "resize-tl";
             if (Math.abs(mx - (cx + cw)) < hs && Math.abs(my - cy) < hs) return "resize-tr";
             if (Math.abs(mx - cx) < hs && Math.abs(my - (cy + ch)) < hs) return "resize-bl";
             if (Math.abs(mx - (cx + cw)) < hs && Math.abs(my - (cy + ch)) < hs) return "resize-br";
 
-            // Edge handles
-            if (Math.abs(my - cy) < hs && mx > cx + hs && mx < cx + cw - hs) return "resize-t";
-            if (Math.abs(my - (cy + ch)) < hs && mx > cx + hs && mx < cx + cw - hs) return "resize-b";
-            if (Math.abs(mx - cx) < hs && my > cy + hs && my < cy + ch - hs) return "resize-l";
-            if (Math.abs(mx - (cx + cw)) < hs && my > cy + hs && my < cy + ch - hs) return "resize-r";
+            // Edge handles (freeform only)
+            if (!lockedRatio) {
+                if (Math.abs(my - cy) < hs && mx > cx + hs && mx < cx + cw - hs) return "resize-t";
+                if (Math.abs(my - (cy + ch)) < hs && mx > cx + hs && mx < cx + cw - hs) return "resize-b";
+                if (Math.abs(mx - cx) < hs && my > cy + hs && my < cy + ch - hs) return "resize-l";
+                if (Math.abs(mx - (cx + cw)) < hs && my > cy + hs && my < cy + ch - hs) return "resize-r";
+            }
 
-            // Inside crop = move
             if (mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch) return "move";
-
-            // Outside = new draw
             return "draw";
         }
 
@@ -254,11 +279,82 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             }
         }
 
-        function clampCrop() {
-            crop.x = Math.max(0, Math.min(crop.x, imgW - 1));
-            crop.y = Math.max(0, Math.min(crop.y, imgH - 1));
-            crop.w = Math.max(1, Math.min(crop.w, imgW - crop.x));
-            crop.h = Math.max(1, Math.min(crop.h, imgH - crop.y));
+        // --- Ratio-aware resize logic ---
+
+        function applyResize(mode, dx, dy) {
+            const s = dragCropStart;
+
+            if (lockedRatio) {
+                // For ratio-locked resize, use the dominant axis to compute both dimensions
+                applyRatioLockedResize(mode, dx, dy, s, imgW, imgH);
+            } else {
+                applyFreeResize(mode, dx, dy, s);
+            }
+
+            if (crop.w < 0) { crop.x += crop.w; crop.w = Math.abs(crop.w); }
+            if (crop.h < 0) { crop.y += crop.h; crop.h = Math.abs(crop.h); }
+            clampCrop(crop, imgW, imgH);
+        }
+
+        function applyFreeResize(mode, dx, dy, s) {
+            if (mode === "draw") {
+                const ix = dragStart[0] + dx;
+                const iy = dragStart[1] + dy;
+                crop.x = Math.min(dragStart[0], ix);
+                crop.y = Math.min(dragStart[1], iy);
+                crop.w = Math.abs(ix - dragStart[0]);
+                crop.h = Math.abs(iy - dragStart[1]);
+            } else if (mode === "move") {
+                crop.x = s.x + dx; crop.y = s.y + dy;
+            } else if (mode === "resize-br") { crop.w = s.w + dx; crop.h = s.h + dy; }
+            else if (mode === "resize-bl") { crop.x = s.x + dx; crop.w = s.w - dx; crop.h = s.h + dy; }
+            else if (mode === "resize-tr") { crop.y = s.y + dy; crop.w = s.w + dx; crop.h = s.h - dy; }
+            else if (mode === "resize-tl") { crop.x = s.x + dx; crop.y = s.y + dy; crop.w = s.w - dx; crop.h = s.h - dy; }
+            else if (mode === "resize-t") { crop.y = s.y + dy; crop.h = s.h - dy; }
+            else if (mode === "resize-b") { crop.h = s.h + dy; }
+            else if (mode === "resize-l") { crop.x = s.x + dx; crop.w = s.w - dx; }
+            else if (mode === "resize-r") { crop.w = s.w + dx; }
+        }
+
+        function applyRatioLockedResize(mode, dx, dy, s, imgW, imgH) {
+            const R = lockedRatio;
+
+            if (mode === "draw") {
+                // Use width as driver, compute height from ratio
+                const ix = dragStart[0] + dx;
+                const iy = dragStart[1] + dy;
+                let newW = Math.abs(ix - dragStart[0]);
+                let newH = newW / R;
+                crop.x = Math.min(dragStart[0], dragStart[0] + (ix > dragStart[0] ? 0 : -newW));
+                crop.y = Math.min(dragStart[1], dragStart[1] + (iy > dragStart[1] ? 0 : -newH));
+                crop.w = newW;
+                crop.h = newH;
+            } else if (mode === "move") {
+                crop.x = s.x + dx;
+                crop.y = s.y + dy;
+                crop.w = s.w;
+                crop.h = s.h;
+            } else {
+                // Corner resize: use the larger delta as driver
+                let newW, newH;
+                if (mode === "resize-br") {
+                    newW = s.w + dx; newH = newW / R;
+                } else if (mode === "resize-bl") {
+                    newW = s.w - dx; newH = newW / R;
+                    crop.x = s.x + s.w - newW;
+                } else if (mode === "resize-tr") {
+                    newW = s.w + dx; newH = newW / R;
+                    crop.y = s.y + s.h - newH;
+                } else if (mode === "resize-tl") {
+                    newW = s.w - dx; newH = newW / R;
+                    crop.x = s.x + s.w - newW;
+                    crop.y = s.y + s.h - newH;
+                }
+                if (newW !== undefined) {
+                    crop.w = Math.max(10, newW);
+                    crop.h = Math.max(10, crop.w / R);
+                }
+            }
         }
 
         canvas.addEventListener("mousemove", (e) => {
@@ -275,47 +371,7 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             const dx = ix - dragStart[0];
             const dy = iy - dragStart[1];
 
-            if (dragMode === "draw") {
-                crop.x = Math.min(dragStart[0], ix);
-                crop.y = Math.min(dragStart[1], iy);
-                crop.w = Math.abs(ix - dragStart[0]);
-                crop.h = Math.abs(iy - dragStart[1]);
-            } else if (dragMode === "move") {
-                crop.x = dragCropStart.x + dx;
-                crop.y = dragCropStart.y + dy;
-            } else if (dragMode === "resize-br") {
-                crop.w = dragCropStart.w + dx;
-                crop.h = dragCropStart.h + dy;
-            } else if (dragMode === "resize-bl") {
-                crop.x = dragCropStart.x + dx;
-                crop.w = dragCropStart.w - dx;
-                crop.h = dragCropStart.h + dy;
-            } else if (dragMode === "resize-tr") {
-                crop.y = dragCropStart.y + dy;
-                crop.w = dragCropStart.w + dx;
-                crop.h = dragCropStart.h - dy;
-            } else if (dragMode === "resize-tl") {
-                crop.x = dragCropStart.x + dx;
-                crop.y = dragCropStart.y + dy;
-                crop.w = dragCropStart.w - dx;
-                crop.h = dragCropStart.h - dy;
-            } else if (dragMode === "resize-t") {
-                crop.y = dragCropStart.y + dy;
-                crop.h = dragCropStart.h - dy;
-            } else if (dragMode === "resize-b") {
-                crop.h = dragCropStart.h + dy;
-            } else if (dragMode === "resize-l") {
-                crop.x = dragCropStart.x + dx;
-                crop.w = dragCropStart.w - dx;
-            } else if (dragMode === "resize-r") {
-                crop.w = dragCropStart.w + dx;
-            }
-
-            // Handle negative width/height (dragged past opposite edge)
-            if (crop.w < 0) { crop.x += crop.w; crop.w = Math.abs(crop.w); }
-            if (crop.h < 0) { crop.y += crop.h; crop.h = Math.abs(crop.h); }
-
-            clampCrop();
+            applyResize(dragMode, dx, dy);
             draw();
         });
 
@@ -333,23 +389,19 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
                 crop.x = ix;
                 crop.y = iy;
                 crop.w = 1;
-                crop.h = 1;
+                crop.h = lockedRatio ? 1 / lockedRatio : 1;
             }
         });
 
         canvas.addEventListener("mouseup", () => {
             dragMode = null;
-            clampCrop();
+            clampCrop(crop, imgW, imgH);
             draw();
         });
 
-        // Keyboard: Escape to cancel
         const onKey = (e) => {
-            if (e.key === "Escape") {
-                cleanup();
-            } else if (e.key === "Enter") {
-                applyCrop();
-            }
+            if (e.key === "Escape") cleanup();
+            else if (e.key === "Enter") applyCrop();
         };
         document.addEventListener("keydown", onKey);
 
@@ -370,7 +422,6 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
         applyBtn.addEventListener("click", applyCrop);
         cancelBtn.addEventListener("click", cleanup);
 
-        // Initial draw
         draw();
     };
 
@@ -380,4 +431,34 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
     };
 
     img.src = imgUrl;
+}
+
+
+function fitCropToRatio(crop, ratio, imgW, imgH) {
+    // Adjust the crop to match the target ratio, keeping it centered
+    const cx = crop.x + crop.w / 2;
+    const cy = crop.y + crop.h / 2;
+
+    let newW = crop.w;
+    let newH = newW / ratio;
+
+    if (newH > crop.h) {
+        newH = crop.h;
+        newW = newH * ratio;
+    }
+
+    return {
+        x: cx - newW / 2,
+        y: cy - newH / 2,
+        w: newW,
+        h: newH,
+    };
+}
+
+
+function clampCrop(crop, imgW, imgH) {
+    crop.x = Math.max(0, Math.min(crop.x, imgW - 1));
+    crop.y = Math.max(0, Math.min(crop.y, imgH - 1));
+    crop.w = Math.max(1, Math.min(crop.w, imgW - crop.x));
+    crop.h = Math.max(1, Math.min(crop.h, imgH - crop.y));
 }

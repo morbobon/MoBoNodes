@@ -19,7 +19,7 @@ STANDARD_RATIOS = {
     "1:2":   (1, 2),
 }
 
-RATIO_NAMES = list(STANDARD_RATIOS.keys()) + ["Custom"]
+RATIO_NAMES = list(STANDARD_RATIOS.keys()) + ["Custom", "From input"]
 
 
 def snap_to_nearest_ratio(w, h):
@@ -40,15 +40,12 @@ def snap_to_nearest_ratio(w, h):
 def compute_resolution(ratio_w, ratio_h, target_longest_side, divisible_by=8):
     """Compute width and height from ratio + target longest side, ensuring divisibility."""
     if ratio_w >= ratio_h:
-        # Landscape or square: longest side is width
         w = target_longest_side
         h = round(w * ratio_h / ratio_w)
     else:
-        # Portrait: longest side is height
         h = target_longest_side
         w = round(h * ratio_w / ratio_h)
 
-    # Snap to divisible_by
     w = max(divisible_by, (w // divisible_by) * divisible_by)
     h = max(divisible_by, (h // divisible_by) * divisible_by)
 
@@ -66,6 +63,8 @@ class MoBo_AspectRatio:
             },
             "optional": {
                 "image": ("IMAGE",),
+                "input_width": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True}),
+                "input_height": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True}),
                 "auto_snap": ("BOOLEAN", {"default": False}),
                 "custom_ratio_w": ("INT", {"default": 16, "min": 1, "max": 100}),
                 "custom_ratio_h": ("INT", {"default": 9, "min": 1, "max": 100}),
@@ -78,14 +77,35 @@ class MoBo_AspectRatio:
     CATEGORY = "MoBo Nodes"
 
     def calc(self, ratio, target_longest_side, divisible_by,
-             image=None, auto_snap=False, custom_ratio_w=16, custom_ratio_h=9):
+             image=None, input_width=0, input_height=0,
+             auto_snap=False, custom_ratio_w=16, custom_ratio_h=9):
 
-        # Step 1: Determine the ratio to use
-        if auto_snap and image is not None:
-            # Auto-detect from image and snap to nearest standard ratio
-            img_h = image.shape[1]
-            img_w = image.shape[2]
-            matched = snap_to_nearest_ratio(img_w, img_h)
+        # Step 1: Determine source dimensions (image takes priority over raw ints)
+        src_w, src_h = 0, 0
+        if image is not None:
+            src_w = image.shape[2]
+            src_h = image.shape[1]
+        elif input_width > 0 and input_height > 0:
+            src_w = input_width
+            src_h = input_height
+
+        # Step 2: Determine the ratio to use
+        if ratio == "From input" and src_w > 0 and src_h > 0:
+            # Use the exact ratio from the input dimensions
+            if auto_snap:
+                # Snap to nearest standard ratio
+                matched = snap_to_nearest_ratio(src_w, src_h)
+                rw, rh = STANDARD_RATIOS[matched]
+                ratio_string = matched
+            else:
+                # Use exact input ratio
+                g = math.gcd(src_w, src_h)
+                rw = src_w // g
+                rh = src_h // g
+                ratio_string = f"{rw}:{rh}"
+        elif auto_snap and src_w > 0 and src_h > 0:
+            # Any ratio mode + auto_snap + source available: snap source to nearest
+            matched = snap_to_nearest_ratio(src_w, src_h)
             rw, rh = STANDARD_RATIOS[matched]
             ratio_string = matched
         elif ratio == "Custom":
@@ -93,11 +113,15 @@ class MoBo_AspectRatio:
             rh = custom_ratio_h
             g = math.gcd(rw, rh)
             ratio_string = f"{rw // g}:{rh // g}"
+        elif ratio == "From input":
+            # No source connected, fall back to 1:1
+            rw, rh = 1, 1
+            ratio_string = "1:1"
         else:
             rw, rh = STANDARD_RATIOS[ratio]
             ratio_string = ratio
 
-        # Step 2: Compute resolution
+        # Step 3: Compute resolution
         w, h = compute_resolution(rw, rh, target_longest_side, divisible_by)
 
         ratio_float = round(w / h, 4) if h > 0 else 0.0
