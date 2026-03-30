@@ -520,20 +520,6 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node, source
             yWidget.value = Math.round(crop.y);
             wWidget.value = Math.round(crop.w);
             hWidget.value = Math.round(crop.h);
-
-            // Also update the ratio widget on the node if it exists
-            const ratioWidget = node.widgets?.find(w => w.name === "ratio");
-            if (ratioWidget) {
-                if (activeRatioName === "Free") {
-                    ratioWidget.value = "Freeform";
-                } else if (activeRatioName === "Image") {
-                    // Set to closest standard ratio or Freeform
-                    ratioWidget.value = imageRatio.name;
-                } else if (STANDARD_RATIOS[activeRatioName] !== undefined) {
-                    ratioWidget.value = activeRatioName;
-                }
-            }
-
             app.graph.setDirtyCanvas(true);
             cleanup();
         }
