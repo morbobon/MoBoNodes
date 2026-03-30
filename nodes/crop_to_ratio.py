@@ -87,7 +87,11 @@ class MoBo_CropToRatio:
     FUNCTION = "crop"
     CATEGORY = "MoBo Nodes"
 
-    def crop(self, image, ratio, anchor, custom_ratio_w=16, custom_ratio_h=9):
+    def crop(self, image, ratio, anchor, custom_ratio_w=None, custom_ratio_h=None):
+        if custom_ratio_w is None:
+            custom_ratio_w = 16
+        if custom_ratio_h is None:
+            custom_ratio_h = 9
         # image shape: [B, H, W, C]
         img_h = image.shape[1]
         img_w = image.shape[2]

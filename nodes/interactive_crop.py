@@ -55,7 +55,11 @@ class MoBo_InteractiveCrop:
     CATEGORY = "MoBo Nodes"
 
     def crop(self, image, ratio, crop_x, crop_y, crop_width, crop_height,
-             ratio_override="", custom_ratio_w=16, custom_ratio_h=9):
+             ratio_override="", custom_ratio_w=None, custom_ratio_h=None):
+        if custom_ratio_w is None:
+            custom_ratio_w = 16
+        if custom_ratio_h is None:
+            custom_ratio_h = 9
         # image shape: [B, H, W, C]
         img_h = image.shape[1]
         img_w = image.shape[2]

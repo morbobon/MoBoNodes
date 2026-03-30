@@ -28,8 +28,7 @@ function exactRatio(w, h) {
 
 const INFO_PANEL_HEIGHT = 126;
 const TOGGLE_BTN_HEIGHT = 26;
-const TOGGLE_BTN_MARGIN = 6;
-const BOTTOM_PADDING = 8;
+const GAP = 6;
 
 app.registerExtension({
     name: "mobo.ImageInfo",
@@ -43,13 +42,31 @@ app.registerExtension({
 
             const node = this;
 
-            // State
             node._moboInfoLines = ["Connect an image to see info"];
             node._moboLastSrc = null;
             node._moboShowInfo = true;
+            node._moboBaseH = 0; // cached base height (slots only, no extras)
+
+            // Compute base height once — the natural size LiteGraph needs for slots
+            // We temporarily reset size to avoid feedback, measure, then restore
+            function measureBaseHeight() {
+                const savedH = node.size[1];
+                node.size[1] = 10; // force small so computeSize returns the minimum
+                const base = node.computeSize();
+                node._moboBaseH = base[1];
+                node.size[1] = savedH;
+                applyHeight();
+            }
+
+            function applyHeight() {
+                let h = node._moboBaseH + GAP + TOGGLE_BTN_HEIGHT + GAP;
+                if (node._moboShowInfo) {
+                    h += INFO_PANEL_HEIGHT + GAP;
+                }
+                node.size[1] = h;
+            }
 
             function resolveImageUrl() {
-                // Walk the input chain to find an image preview URL
                 const visited = new Set();
                 let currentNode = node;
 
@@ -67,12 +84,10 @@ app.registerExtension({
                     const sourceNode = app.graph.getNodeById(linkInfo.origin_id);
                     if (!sourceNode) break;
 
-                    // Check if this source has a preview
                     if (sourceNode.imgs && sourceNode.imgs.length > 0) {
                         return sourceNode.imgs[0].src;
                     }
 
-                    // Check if it's a LoadImage-style node
                     const imgWidget = sourceNode.widgets?.find(w => w.name === "image");
                     if (imgWidget && imgWidget.value) {
                         const subWidget = sourceNode.widgets?.find(w => w.name === "subfolder");
@@ -80,26 +95,10 @@ app.registerExtension({
                         return `/view?filename=${encodeURIComponent(imgWidget.value)}&subfolder=${encodeURIComponent(sub)}&type=input`;
                     }
 
-                    // Walk upstream
                     currentNode = sourceNode;
                 }
 
                 return null;
-            }
-
-            // Compute where the slots/widgets end (the "base" area)
-            function getBaseBottom() {
-                const baseSize = node.computeSize();
-                return baseSize[1];
-            }
-
-            function getTargetHeight() {
-                const base = getBaseBottom();
-                let h = base + TOGGLE_BTN_HEIGHT + TOGGLE_BTN_MARGIN * 2;
-                if (node._moboShowInfo) {
-                    h += INFO_PANEL_HEIGHT + TOGGLE_BTN_MARGIN;
-                }
-                return h + BOTTOM_PADDING;
             }
 
             function updateInfo() {
@@ -140,30 +139,25 @@ app.registerExtension({
                 img.src = imgUrl;
             }
 
-            // --- Draw everything below the slots ---
+            // --- Drawing ---
             const origOnDrawForeground = node.onDrawForeground;
             node.onDrawForeground = function (ctx) {
                 origOnDrawForeground?.call(this, ctx);
 
-                // Enforce correct height
-                const target = getTargetHeight();
-                if (Math.abs(node.size[1] - target) > 1) {
-                    node.size[1] = target;
-                }
+                // Lock size
+                applyHeight();
+                if (node.size[0] < 280) node.size[0] = 280;
 
                 const nodeW = node.size[0];
-                const baseY = getBaseBottom();
+                const btnY = node._moboBaseH + GAP;
 
-                // --- Toggle button (drawn, not a widget) ---
+                // --- Toggle button ---
                 const btnX = 10;
-                const btnY = baseY + TOGGLE_BTN_MARGIN;
                 const btnW = nodeW - 20;
                 const btnH = TOGGLE_BTN_HEIGHT;
 
-                // Store for hit testing
                 node._moboBtnRect = { x: btnX, y: btnY, w: btnW, h: btnH };
 
-                // Button background
                 ctx.fillStyle = "#2a2a3e";
                 ctx.beginPath();
                 ctx.roundRect(btnX, btnY, btnW, btnH, 4);
@@ -174,7 +168,6 @@ app.registerExtension({
                 ctx.roundRect(btnX, btnY, btnW, btnH, 4);
                 ctx.stroke();
 
-                // Button text
                 ctx.fillStyle = "#aabbcc";
                 ctx.font = "12px sans-serif";
                 ctx.textAlign = "center";
@@ -184,23 +177,22 @@ app.registerExtension({
                     btnX + btnW / 2,
                     btnY + btnH / 2
                 );
-                ctx.textAlign = "left"; // reset
+                ctx.textAlign = "left";
 
                 // --- Info panel ---
                 if (!node._moboShowInfo || !node._moboInfoLines) return;
 
-                const panelY = btnY + btnH + TOGGLE_BTN_MARGIN;
-                const panelW = nodeW;
+                const panelY = btnY + btnH + GAP;
 
                 ctx.fillStyle = "#1a1a2e";
                 ctx.beginPath();
-                ctx.roundRect(6, panelY, panelW - 12, INFO_PANEL_HEIGHT, 6);
+                ctx.roundRect(6, panelY, nodeW - 12, INFO_PANEL_HEIGHT, 6);
                 ctx.fill();
 
                 ctx.strokeStyle = "#333";
                 ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.roundRect(6, panelY, panelW - 12, INFO_PANEL_HEIGHT, 6);
+                ctx.roundRect(6, panelY, nodeW - 12, INFO_PANEL_HEIGHT, 6);
                 ctx.stroke();
 
                 ctx.fillStyle = "#ccddee";
@@ -215,7 +207,7 @@ app.registerExtension({
                 }
             };
 
-            // Handle clicks on our drawn button
+            // Handle clicks on drawn button
             const origOnMouseDown = node.onMouseDown;
             node.onMouseDown = function (e, localPos) {
                 if (node._moboBtnRect) {
@@ -223,14 +215,15 @@ app.registerExtension({
                     if (localPos[0] >= r.x && localPos[0] <= r.x + r.w &&
                         localPos[1] >= r.y && localPos[1] <= r.y + r.h) {
                         node._moboShowInfo = !node._moboShowInfo;
+                        applyHeight();
                         app.graph.setDirtyCanvas(true);
-                        return true; // consume the event
+                        return true;
                     }
                 }
                 return origOnMouseDown?.call(node, e, localPos);
             };
 
-            // Poll for source changes
+            // Poll
             const pollTimer = setInterval(() => {
                 node._moboLastSrc = null;
                 updateInfo();
@@ -252,10 +245,11 @@ app.registerExtension({
             const origOnConfigure = node.onConfigure;
             node.onConfigure = function (info) {
                 origOnConfigure?.call(node, info);
-                setTimeout(updateInfo, 500);
+                setTimeout(() => { measureBaseHeight(); updateInfo(); }, 500);
             };
 
-            setTimeout(updateInfo, 300);
+            // Initial
+            setTimeout(() => { measureBaseHeight(); updateInfo(); }, 300);
         };
     },
 });

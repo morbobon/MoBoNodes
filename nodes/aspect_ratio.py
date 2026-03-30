@@ -77,8 +77,16 @@ class MoBo_AspectRatio:
     CATEGORY = "MoBo Nodes"
 
     def calc(self, ratio, target_longest_side, divisible_by,
-             image=None, input_width=0, input_height=0,
-             auto_snap=False, custom_ratio_w=16, custom_ratio_h=9):
+             image=None, input_width=None, input_height=None,
+             auto_snap=False, custom_ratio_w=None, custom_ratio_h=None):
+        if input_width is None:
+            input_width = 0
+        if input_height is None:
+            input_height = 0
+        if custom_ratio_w is None:
+            custom_ratio_w = 16
+        if custom_ratio_h is None:
+            custom_ratio_h = 9
 
         # Step 1: Determine source dimensions (image takes priority over raw ints)
         src_w, src_h = 0, 0
