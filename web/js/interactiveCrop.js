@@ -48,15 +48,20 @@ app.registerExtension({
                 if (!sourceNode) return;
 
                 let imgUrl = null;
+                let sourceFilename = "";
+                let sourceSubfolder = "";
+
                 if (sourceNode.imgs && sourceNode.imgs.length > 0) {
                     imgUrl = sourceNode.imgs[0].src;
                 }
-                if (!imgUrl) {
-                    const imgWidget = sourceNode.widgets?.find(w => w.name === "image");
-                    if (imgWidget && imgWidget.value) {
-                        const subWidget = sourceNode.widgets?.find(w => w.name === "subfolder");
-                        const sub = subWidget ? (subWidget.value === "." ? "" : subWidget.value) : "";
-                        imgUrl = `/view?filename=${encodeURIComponent(imgWidget.value)}&subfolder=${encodeURIComponent(sub)}&type=input`;
+                // Also try to get filename/subfolder from widget for saving
+                const imgWidget = sourceNode.widgets?.find(w => w.name === "image");
+                if (imgWidget && imgWidget.value) {
+                    sourceFilename = imgWidget.value;
+                    const subWidget = sourceNode.widgets?.find(w => w.name === "subfolder");
+                    sourceSubfolder = subWidget ? (subWidget.value === "." ? "" : subWidget.value) : "";
+                    if (!imgUrl) {
+                        imgUrl = `/view?filename=${encodeURIComponent(sourceFilename)}&subfolder=${encodeURIComponent(sourceSubfolder)}&type=input`;
                     }
                 }
                 if (!imgUrl) {
@@ -64,14 +69,14 @@ app.registerExtension({
                     return;
                 }
 
-                openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node);
+                openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node, sourceFilename, sourceSubfolder);
             });
         };
     },
 });
 
 
-function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
+function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node, sourceFilename, sourceSubfolder) {
     const overlay = document.createElement("div");
     overlay.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
@@ -105,7 +110,15 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
     infoLabel.style.cssText = "font-size: 12px; font-family: monospace; color: #66ccff; min-width: 300px; text-align: right;";
     header.appendChild(infoLabel);
 
-    // Reset / Apply / Cancel
+    // Save Cropped / Reset / Apply / Cancel
+    const saveCropBtn = document.createElement("button");
+    saveCropBtn.textContent = "💾 Save Cropped";
+    saveCropBtn.style.cssText = `
+        padding: 7px 14px; background: #2d6b3f; color: #fff; border: none;
+        border-radius: 5px; cursor: pointer; font-size: 13px;
+    `;
+    header.appendChild(saveCropBtn);
+
     const resetBtn = document.createElement("button");
     resetBtn.textContent = "Reset";
     resetBtn.style.cssText = `
@@ -524,6 +537,58 @@ function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node) {
             app.graph.setDirtyCanvas(true);
             cleanup();
         }
+
+        saveCropBtn.addEventListener("click", async () => {
+            // Crop at full resolution using an offscreen canvas
+            const cx = Math.round(crop.x);
+            const cy = Math.round(crop.y);
+            const cw = Math.round(crop.w);
+            const ch = Math.round(crop.h);
+
+            if (cw < 1 || ch < 1) { alert("Crop region too small."); return; }
+
+            const offCanvas = document.createElement("canvas");
+            offCanvas.width = cw;
+            offCanvas.height = ch;
+            const offCtx = offCanvas.getContext("2d");
+            offCtx.drawImage(img, cx, cy, cw, ch, 0, 0, cw, ch);
+
+            // Build filename: original_name_cropped.ext
+            let saveName = "cropped.png";
+            let saveExt = "png";
+            if (sourceFilename) {
+                const dotIdx = sourceFilename.lastIndexOf(".");
+                const baseName = dotIdx > 0 ? sourceFilename.substring(0, dotIdx) : sourceFilename;
+                const origExt = dotIdx > 0 ? sourceFilename.substring(dotIdx + 1).toLowerCase() : "png";
+                saveExt = ["jpg", "jpeg", "png", "webp"].includes(origExt) ? origExt : "png";
+                saveName = `${baseName}_cropped.${saveExt}`;
+            }
+
+            // Export to blob
+            const mimeType = saveExt === "jpg" || saveExt === "jpeg" ? "image/jpeg" : `image/${saveExt}`;
+            const quality = mimeType === "image/jpeg" ? 0.95 : undefined;
+
+            saveCropBtn.textContent = "⏳ Saving…";
+
+            try {
+                const blob = await new Promise(resolve => offCanvas.toBlob(resolve, mimeType, quality));
+                const formData = new FormData();
+                formData.append("image", new File([blob], saveName, { type: mimeType }));
+                formData.append("subfolder", sourceSubfolder || "");
+                formData.append("type", "input");
+                formData.append("overwrite", "true");
+
+                const resp = await fetch("/upload/image", { method: "POST", body: formData });
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const result = await resp.json();
+                saveCropBtn.textContent = `✅ Saved: ${result.name}`;
+                setTimeout(() => { saveCropBtn.textContent = "💾 Save Cropped"; }, 3000);
+            } catch (e) {
+                console.error("Save cropped failed:", e);
+                saveCropBtn.textContent = "❌ Failed";
+                setTimeout(() => { saveCropBtn.textContent = "💾 Save Cropped"; }, 3000);
+            }
+        });
 
         resetBtn.addEventListener("click", () => {
             // Reset to full image with current ratio
