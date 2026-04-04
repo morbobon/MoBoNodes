@@ -190,4 +190,4 @@ MIT
 
 ## Author
 
-Morten Bo Bonding ([@morbobon](https://github.com/morbobon))
+MoBo ([@morbobon](https://github.com/morbobon))
