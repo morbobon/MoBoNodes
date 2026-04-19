@@ -38,16 +38,29 @@ def exact_ratio_string(w, h):
 
 
 class MoBo_ImageInfo:
+    """Extract dimensions, ratio, orientation, and megapixels from an image tensor."""
+
+    DESCRIPTION = "Return dimensions, aspect ratio, orientation, and megapixels of an image. Useful for conditional routing or composing filenames."
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",),
+                "image": ("IMAGE", {"tooltip": "Image to inspect."}),
             },
         }
 
     RETURN_TYPES = ("INT", "INT", "FLOAT", "STRING", "STRING", "STRING", "FLOAT")
     RETURN_NAMES = ("width", "height", "ratio_float", "closest_ratio", "exact_ratio", "orientation", "megapixels")
+    OUTPUT_TOOLTIPS = (
+        "Width in pixels.",
+        "Height in pixels.",
+        "width / height as a float, rounded to 4 decimals (e.g. 1.7778 for 16:9).",
+        "Nearest standard ratio name (e.g. '16:9', '4:3', '1:1').",
+        "Exact GCD-simplified ratio (e.g. 1920×1080 → '16:9'; coprime dims stay as-is).",
+        "'landscape', 'portrait', or 'square'.",
+        "(width × height) / 1,000,000, rounded to 2 decimals.",
+    )
     FUNCTION = "get_info"
     CATEGORY = "MoBo Nodes"
 

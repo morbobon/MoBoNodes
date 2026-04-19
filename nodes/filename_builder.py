@@ -1,123 +1,136 @@
 import os
 import re
 
+from .aspect_ratio import snap_to_nearest_ratio
+
 
 def resolve_template(template, variables):
-    """
-    Replace {variable} placeholders in the template with values from the variables dict.
-    ComfyUI's native %tokens% (like %date:FORMAT% and %NodeName.widget%) pass through
-    untouched — SaveImage resolves those downstream.
-    Unknown or empty {variables} are replaced with empty string.
-    """
+    """Replace {variable} placeholders with values; %tokens% pass through untouched."""
     def replacer(match):
         key = match.group(1)
         val = variables.get(key, "")
         if val is None:
             return ""
         return str(val)
-
-    # Only match {word} — not %percent% tokens
-    result = re.sub(r"\{([^}]+)\}", replacer, template)
-    return result
+    return re.sub(r"\{([^}]+)\}", replacer, template)
 
 
 def clean_filename(s):
-    """Clean up a composed filename: collapse separators, strip edges."""
-    # Replace path separators with underscores
-    s = s.replace("/", "_").replace("\\", "_")
-    # Remove problematic chars
-    s = re.sub(r'[<>:"|?*]', '', s)
-    # Collapse multiple underscores/hyphens
+    """Light cleanup for a composed filename. Preserves every char the user typed
+    (including ':' for %date:FORMAT% tokens). Only normalizes '\\' → '/',
+    collapses consecutive /_- runs, and trims edges."""
+    s = s.replace("\\", "/")
+    s = re.sub(r'/+', '/', s)
     s = re.sub(r'_+', '_', s)
     s = re.sub(r'-+', '-', s)
-    # Strip leading/trailing separators and whitespace
-    s = s.strip('_- ')
+    s = s.strip('/_- ')
     return s
 
 
+def clean_folder(s):
+    """Same as clean_filename for now — folder output also preserves user-typed chars."""
+    return clean_filename(s)
+
+
+def compute_aspect(width, height):
+    """Return filename-safe aspect ratio (e.g. '16x9') snapped to nearest standard, or ''."""
+    if not width or not height or width <= 0 or height <= 0:
+        return ""
+    return snap_to_nearest_ratio(width, height).replace(":", "x")
+
+
 class MoBo_FilenameBuilder:
-    """
-    Compose output filenames from input parts using a {variable} template.
+    """Compose filename and folder outputs from {variable} templates."""
 
-    Template variables:
-        {folder}   — folder input, path separators → underscores
-        {name}     — filename input, extension stripped
-        {ext}      — extension from filename (without dot)
-        {prefix}   — prefix input
-        {suffix}   — suffix input
-        {width}    — width input (omitted if 0)
-        {height}   — height input (omitted if 0)
-        {res}      — shorthand for widthxheight (omitted if either is 0)
-
-    ComfyUI native tokens like %date:yyyy_MM_dd% pass through unchanged
-    for SaveImage to resolve.
-    """
+    DESCRIPTION = "Compose a filename AND an output folder from {variable} templates. All inputs are editable widgets; right-click to convert any widget into an input socket. ComfyUI-native %date:…% / %Node.output% tokens pass through for SaveImage to resolve."
 
     @classmethod
     def INPUT_TYPES(s):
+        variables_help = (
+            "Variables: {folder}, {filename} (ext stripped), {ext}, {fileid}, "
+            "{prefix}, {suffix}, {width}, {height}, {res} (WxH), "
+            "{aspect} (nearest standard, e.g. '16x9'). "
+            "%tokens% pass through unchanged."
+        )
         return {
             "required": {
-                "template": ("STRING", {
-                    "default": "{folder}_{name}",
+                "filename_template": ("STRING", {
+                    "default": "{fileid}_{aspect}",
                     "multiline": True,
+                    "tooltip":
+                        "Template for the filename output. " + variables_help +
+                        " Every char you type is preserved (including ':' inside %date:...% tokens). "
+                        "Only '\\' is normalized to '/' and consecutive /_- runs are collapsed.",
+                }),
+                "folder_template": ("STRING", {
+                    "default": "{folder}",
+                    "multiline": True,
+                    "tooltip":
+                        "Template for the folder output. " + variables_help +
+                        " Cleaning is the same as the filename template — every typed char preserved.",
                 }),
             },
             "optional": {
-                "folder": ("STRING", {"default": "", "forceInput": True}),
-                "filename": ("STRING", {"default": "", "forceInput": True}),
-                "prefix": ("STRING", {"default": "", "forceInput": True}),
-                "suffix": ("STRING", {"default": "", "forceInput": True}),
-                "width": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True}),
-                "height": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True}),
+                "folder":   ("STRING", {"default": "",
+                    "tooltip": "Folder name. Available as {folder} in templates; path separators preserved."}),
+                "filename": ("STRING", {"default": "",
+                    "tooltip": "Source filename. Extension is stripped for {filename}; bare extension available as {ext}."}),
+                "fileid":  ("STRING", {"default": "",
+                    "tooltip": "Short heuristic id (e.g. from Load Image Plus). Available as {fileid}."}),
+                "prefix":   ("STRING", {"default": "",
+                    "tooltip": "Prefix fragment. Available as {prefix}."}),
+                "suffix":   ("STRING", {"default": "",
+                    "tooltip": "Suffix fragment. Available as {suffix}."}),
+                "width":    ("INT",    {"default": 0, "min": 0, "max": 16384,
+                    "tooltip": "Width in pixels. 0 = empty string in substitution. Used by {width}, {res}, and {aspect}."}),
+                "height":   ("INT",    {"default": 0, "min": 0, "max": 16384,
+                    "tooltip": "Height in pixels. 0 = empty string in substitution. Used by {height}, {res}, and {aspect}."}),
             },
         }
 
     RETURN_TYPES = ("STRING", "STRING")
     RETURN_NAMES = ("filename", "folder")
+    OUTPUT_TOOLTIPS = (
+        "Composed and sanitized filename from filename_template. Safe to pass to SaveImage's filename_prefix.",
+        "Composed folder path from folder_template. Nested folders ('/') preserved for routing to SaveImage's output dir or similar.",
+    )
     FUNCTION = "build"
     CATEGORY = "MoBo Nodes"
 
-    def build(self, template, folder=None, filename=None, prefix=None, suffix=None,
-              width=None, height=None):
-        if folder is None:
-            folder = ""
-        if filename is None:
-            filename = ""
-        if prefix is None:
-            prefix = ""
-        if suffix is None:
-            suffix = ""
-        if width is None:
-            width = 0
-        if height is None:
-            height = 0
+    def build(self, filename_template, folder_template,
+              folder="", filename="", fileid="",
+              prefix="", suffix="", width=0, height=0):
+        # Coerce Nones → defaults
+        folder   = folder   or ""
+        filename = filename or ""
+        fileid  = fileid  or ""
+        prefix   = prefix   or ""
+        suffix   = suffix   or ""
+        width    = width    or 0
+        height   = height   or 0
 
-        # Derive name and extension from filename
+        # Derive name/extension from source filename
         name, ext = os.path.splitext(filename)
         ext = ext.lstrip(".")
 
-        # Clean folder: replace path separators with underscores
-        folder_clean = folder.replace("/", "_").replace("\\", "_").strip("_")
+        res    = f"{width}x{height}" if width > 0 and height > 0 else ""
+        aspect = compute_aspect(width, height)
 
-        # Build resolution string
-        res = f"{width}x{height}" if width > 0 and height > 0 else ""
-
-        # Variable lookup
         variables = {
-            "folder": folder_clean,
-            "name": name,
-            "ext": ext,
-            "prefix": prefix,
-            "suffix": suffix,
-            "width": str(width) if width > 0 else "",
-            "height": str(height) if height > 0 else "",
-            "res": res,
+            "folder":   folder,     # raw — path separators preserved for folder templates
+            "filename": name,       # preferred name: extension-stripped stem
+            "name":     name,       # backward-compat alias
+            "ext":      ext,
+            "fileid":  fileid,
+            "prefix":   prefix,
+            "suffix":   suffix,
+            "width":    str(width) if width > 0 else "",
+            "height":   str(height) if height > 0 else "",
+            "res":      res,
+            "aspect":   aspect,
         }
 
-        # Resolve {variables} — %tokens% pass through for SaveImage
-        result = resolve_template(template, variables)
+        filename_result = clean_filename(resolve_template(filename_template, variables))
+        folder_result   = clean_folder(resolve_template(folder_template, variables))
 
-        # Clean up (but preserve %tokens%)
-        result = clean_filename(result)
-
-        return (result, folder)
+        return (filename_result, folder_result)

@@ -68,22 +68,40 @@ def compute_crop(img_w, img_h, ratio_w, ratio_h, anchor):
 
 
 class MoBo_CropToRatio:
+    """Automatically crop an image to a target aspect ratio, anchored to a chosen position."""
+
+    DESCRIPTION = "Crop an image to a target aspect ratio — the largest crop that fits, anchored where you choose. No upscaling or letterboxing."
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "ratio": (RATIO_NAMES, {"default": "16:9"}),
-                "anchor": (ANCHOR_POSITIONS, {"default": "center"}),
+                "image": ("IMAGE", {"tooltip": "Image to crop."}),
+                "ratio": (RATIO_NAMES, {"default": "16:9",
+                    "tooltip": "Target aspect ratio. Pick a standard name or 'Custom' to use custom_ratio_w/h."}),
+                "anchor": (ANCHOR_POSITIONS, {"default": "center",
+                    "tooltip": "Which part of the source image to keep. Nine positions: top/center/bottom × left/center/right."}),
             },
             "optional": {
-                "custom_ratio_w": ("INT", {"default": 16, "min": 1, "max": 100}),
-                "custom_ratio_h": ("INT", {"default": 9, "min": 1, "max": 100}),
+                "custom_ratio_w": ("INT", {"default": 16, "min": 1, "max": 100,
+                    "tooltip": "Custom ratio width (used when ratio = 'Custom')."}),
+                "custom_ratio_h": ("INT", {"default": 9, "min": 1, "max": 100,
+                    "tooltip": "Custom ratio height (used when ratio = 'Custom')."}),
             },
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "INT", "INT", "INT", "INT")
     RETURN_NAMES = ("image", "mask", "x", "y", "crop_width", "crop_height", "width", "height")
+    OUTPUT_TOOLTIPS = (
+        "Cropped image tensor.",
+        "Mask at original image size: 1 inside the crop region, 0 outside.",
+        "Top-left x of the crop region in the original image.",
+        "Top-left y of the crop region in the original image.",
+        "Width of the crop region in pixels.",
+        "Height of the crop region in pixels.",
+        "Output image width (equals crop_width).",
+        "Output image height (equals crop_height).",
+    )
     FUNCTION = "crop"
     CATEGORY = "MoBo Nodes"
 

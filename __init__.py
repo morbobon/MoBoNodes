@@ -1,4 +1,5 @@
 from .nodes.image_loader import MoBo_FolderImageLoader
+from .nodes.image_loader_plus import MoBo_ImageLoaderPlus
 from .nodes.image_info import MoBo_ImageInfo
 from .nodes.aspect_ratio import MoBo_AspectRatio
 from .nodes.crop_to_ratio import MoBo_CropToRatio
@@ -7,20 +8,22 @@ from .nodes.filename_builder import MoBo_FilenameBuilder
 
 NODE_CLASS_MAPPINGS = {
     "LoadImageFromFolder": MoBo_FolderImageLoader,
-    "MoBo_ImageInfo": MoBo_ImageInfo,
-    "MoBo_AspectRatio": MoBo_AspectRatio,
-    "MoBo_CropToRatio": MoBo_CropToRatio,
-    "MoBo_InteractiveCrop": MoBo_InteractiveCrop,
-    "MoBo_FilenameBuilder": MoBo_FilenameBuilder,
+    "LoadImagePlus": MoBo_ImageLoaderPlus,
+    "ImageInfo": MoBo_ImageInfo,
+    "AspectRatio": MoBo_AspectRatio,
+    "CropToRatio": MoBo_CropToRatio,
+    "InteractiveCrop": MoBo_InteractiveCrop,
+    "FilenameBuilder": MoBo_FilenameBuilder,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LoadImageFromFolder": "Load Image from Folder",
-    "MoBo_ImageInfo": "Image Info",
-    "MoBo_AspectRatio": "Aspect Ratio",
-    "MoBo_CropToRatio": "Crop to Ratio",
-    "MoBo_InteractiveCrop": "Interactive Crop",
-    "MoBo_FilenameBuilder": "Filename Builder",
+    "LoadImagePlus": "Load Image Plus",
+    "ImageInfo": "Image Info",
+    "AspectRatio": "Aspect Ratio",
+    "CropToRatio": "Crop to Ratio",
+    "InteractiveCrop": "Interactive Crop",
+    "FilenameBuilder": "Filename Builder",
 }
 
 WEB_DIRECTORY = "./web/js"

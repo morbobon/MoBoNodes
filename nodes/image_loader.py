@@ -12,13 +12,20 @@ from server import PromptServer
 
 
 def get_subfolders(input_dir):
-    """Get list of subfolders under the input directory, including root."""
-    subfolders = ["."]
+    """Get list of subfolders under the input directory, including root.
+
+    Paths are sorted globally so each parent is immediately followed by its
+    entire subtree in depth-first order (e.g. `_folder`, `_folder/sub1`,
+    `_folder/sub2`, `other`, `other/sub3`).
+    """
+    all_paths = []
     for root, dirs, _files in os.walk(input_dir):
-        for d in sorted(dirs):
+        dirs.sort()  # keep walk descent alphabetical for consistency
+        for d in dirs:
             rel = os.path.relpath(os.path.join(root, d), input_dir).replace("\\", "/")
-            subfolders.append(rel)
-    return subfolders
+            all_paths.append(rel)
+    all_paths.sort()
+    return ["."] + all_paths
 
 
 def get_images_in_folder(input_dir, subfolder):
@@ -41,24 +48,47 @@ def get_images_in_folder(input_dir, subfolder):
 
 # --- API Routes ---
 
+def _dir_for_type(source_type):
+    if source_type == "output":
+        return folder_paths.get_output_directory()
+    return folder_paths.get_input_directory()
+
+
 @PromptServer.instance.routes.get("/mobo_nodes/image_loader/subfolders")
 async def list_subfolders(request):
-    input_dir = folder_paths.get_input_directory()
-    subfolders = get_subfolders(input_dir)
-    return web.json_response(subfolders)
+    source_type = request.rel_url.query.get("type", "input")
+    with_counts = request.rel_url.query.get("with_counts") in ("1", "true", "yes")
+    base = _dir_for_type(source_type)
+    subfolders = get_subfolders(base)
+    if not with_counts:
+        return web.json_response(subfolders)
+    # Attach per-folder image counts
+    result = []
+    for sub in subfolders:
+        try:
+            count = len(get_images_in_folder(base, sub))
+        except Exception:
+            count = 0
+        result.append({"path": sub, "count": count})
+    return web.json_response(result)
 
 
 @PromptServer.instance.routes.get("/mobo_nodes/image_loader/images")
 async def list_images(request):
     subfolder = request.rel_url.query.get("subfolder", ".")
-    input_dir = folder_paths.get_input_directory()
-    images = get_images_in_folder(input_dir, subfolder)
+    source_type = request.rel_url.query.get("type", "input")
+    base = _dir_for_type(source_type)
+    images = get_images_in_folder(base, subfolder)
     return web.json_response(images)
 
 
 # --- Node ---
 
 class MoBo_FolderImageLoader:
+    """Basic image loader that browses ComfyUI's input directory by subfolder."""
+
+    DESCRIPTION = "Load an image from any subfolder under ComfyUI/input/. Supports upload and drag-and-drop. See also: Load Image Plus for aspect ratio / resolution control and an edit popup."
+
     @classmethod
     def INPUT_TYPES(s):
         input_dir = folder_paths.get_input_directory()
@@ -70,13 +100,21 @@ class MoBo_FolderImageLoader:
 
         return {
             "required": {
-                "subfolder": (subfolders, {"default": default_folder}),
-                "image": (images, {}),
+                "subfolder": (subfolders, {"default": default_folder,
+                    "tooltip": "Subfolder under ComfyUI/input/; '.' means the root."}),
+                "image": (images, {
+                    "tooltip": "Image file to load from the selected subfolder."}),
             },
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
     RETURN_NAMES = ("image", "mask", "folder", "filename")
+    OUTPUT_TOOLTIPS = (
+        "Loaded RGB image tensor.",
+        "Alpha channel as a mask (zeros if the image has no alpha).",
+        "Selected subfolder name (empty string when root).",
+        "Selected filename.",
+    )
     FUNCTION = "load_image"
     CATEGORY = "MoBo Nodes"
 

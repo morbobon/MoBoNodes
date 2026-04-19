@@ -34,7 +34,7 @@ app.registerExtension({
     name: "mobo.ImageInfo",
 
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name !== "MoBo_ImageInfo") return;
+        if (nodeData.name !== "ImageInfo") return;
 
         const origOnNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function () {

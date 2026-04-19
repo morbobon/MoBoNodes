@@ -2,26 +2,36 @@ import torch
 
 
 class MoBo_InteractiveCrop:
-    """
-    Interactive crop node with a visual popup editor.
-    The crop region is selected at edit time via a JS popup overlay.
-    Ratio locking is handled entirely in the JS popup UI.
-    """
+    """Visually crop a connected image via a full-screen popup editor."""
+
+    DESCRIPTION = "Click 'Show & Edit Image' to pick a crop region visually. Apply writes the selection to the crop_x/y/width/height inputs. Source image must come from a node that exposes a file (LoadImage, Load Image Plus, …)."
 
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "image": ("IMAGE",),
-                "crop_x": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1}),
-                "crop_y": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1}),
-                "crop_width": ("INT", {"default": 512, "min": 1, "max": 16384, "step": 1}),
-                "crop_height": ("INT", {"default": 512, "min": 1, "max": 16384, "step": 1}),
+                "image": ("IMAGE", {"tooltip": "Image to crop. Must come from a node that exposes a file on disk so the editor can fetch it via /view."}),
+                "crop_x": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1,
+                    "tooltip": "Left edge of crop region in original pixel coordinates. Auto-filled by the popup's Apply button."}),
+                "crop_y": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 1,
+                    "tooltip": "Top edge of crop region in original pixel coordinates."}),
+                "crop_width":  ("INT", {"default": 512, "min": 1, "max": 16384, "step": 1,
+                    "tooltip": "Width of crop region in pixels."}),
+                "crop_height": ("INT", {"default": 512, "min": 1, "max": 16384, "step": 1,
+                    "tooltip": "Height of crop region in pixels."}),
             },
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "INT", "INT")
     RETURN_NAMES = ("image", "mask", "x", "y", "width", "height")
+    OUTPUT_TOOLTIPS = (
+        "Cropped image tensor.",
+        "Mask at original image size: 1 inside the crop region, 0 outside.",
+        "Actual x used after clamping to image bounds.",
+        "Actual y used after clamping to image bounds.",
+        "Actual crop width after clamping.",
+        "Actual crop height after clamping.",
+    )
     FUNCTION = "crop"
     CATEGORY = "MoBo Nodes"
 

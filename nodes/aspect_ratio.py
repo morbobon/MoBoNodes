@@ -37,13 +37,13 @@ def snap_to_nearest_ratio(w, h):
     return best_name
 
 
-def compute_resolution(ratio_w, ratio_h, target_longest_side, divisible_by=8):
-    """Compute width and height from ratio + target longest side, ensuring divisibility."""
-    if ratio_w >= ratio_h:
-        w = target_longest_side
+def compute_resolution(ratio_w, ratio_h, target_short_side, divisible_by=8):
+    """Compute width and height from ratio + target short side, ensuring divisibility."""
+    if ratio_w <= ratio_h:
+        w = target_short_side
         h = round(w * ratio_h / ratio_w)
     else:
-        h = target_longest_side
+        h = target_short_side
         w = round(h * ratio_w / ratio_h)
 
     w = max(divisible_by, (w // divisible_by) * divisible_by)
@@ -53,32 +53,55 @@ def compute_resolution(ratio_w, ratio_h, target_longest_side, divisible_by=8):
 
 
 class MoBo_AspectRatio:
+    """Compute width/height from an aspect ratio and a target short-side resolution."""
+
+    DESCRIPTION = "Compute output dimensions from an aspect ratio + target short-side pixel count. Supports 'From input' mode that derives the ratio from a connected image, plus manual override."
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "ratio": (RATIO_NAMES, {"default": "16:9"}),
-                "target_longest_side": ("INT", {"default": 1280, "min": 64, "max": 8192, "step": 8}),
-                "divisible_by": ("INT", {"default": 8, "min": 1, "max": 128, "step": 1}),
+                "ratio": (RATIO_NAMES, {"default": "16:9",
+                    "tooltip": "Aspect ratio. Standard names (16:9, 4:3, …), 'Custom' (uses custom_ratio_w/h), or 'From input' (derived from connected image or input_width/height)."}),
+                "target_short_side": ("INT", {"default": 720, "min": 64, "max": 8192, "step": 8,
+                    "tooltip": "Pixel count for the SHORTER output dimension. Matches video conventions — 720 at 16:9 gives 1280×720."}),
+                "divisible_by": ("INT", {"default": 8, "min": 1, "max": 128, "step": 1,
+                    "tooltip": "Round both output dims DOWN to this multiple. Default 8 matches most diffusion models."}),
             },
             "optional": {
-                "image": ("IMAGE",),
-                "input_width": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True}),
-                "input_height": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True}),
-                "auto_snap": ("BOOLEAN", {"default": False}),
-                "custom_ratio_w": ("INT", {"default": 16, "min": 1, "max": 100}),
-                "custom_ratio_h": ("INT", {"default": 9, "min": 1, "max": 100}),
+                "image": ("IMAGE", {"tooltip": "Source image (used with 'From input' and 'auto_snap')."}),
+                "input_width":  ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True,
+                    "tooltip": "Alternative to image: source width as an int."}),
+                "input_height": ("INT", {"default": 0, "min": 0, "max": 16384, "forceInput": True,
+                    "tooltip": "Alternative to image: source height as an int."}),
+                "auto_snap": ("BOOLEAN", {"default": False,
+                    "tooltip": "If true, snap the source dimensions to the nearest standard ratio before computing output."}),
+                "custom_ratio_w": ("INT", {"default": 16, "min": 1, "max": 100,
+                    "tooltip": "Custom ratio width component (used when ratio = 'Custom')."}),
+                "custom_ratio_h": ("INT", {"default": 9, "min": 1, "max": 100,
+                    "tooltip": "Custom ratio height component (used when ratio = 'Custom')."}),
+                "output_width":  ("INT", {"default": 0, "min": 0, "max": 16384,
+                    "tooltip": "Manual override for output width. Both this and output_height must be > 0 to take effect; set to 0 for automatic."}),
+                "output_height": ("INT", {"default": 0, "min": 0, "max": 16384,
+                    "tooltip": "Manual override for output height. Paired with output_width."}),
             },
         }
 
     RETURN_TYPES = ("STRING", "INT", "INT", "FLOAT")
     RETURN_NAMES = ("ratio_string", "width", "height", "ratio_float")
+    OUTPUT_TOOLTIPS = (
+        "The ratio actually used, e.g. '16:9'. May differ from the 'ratio' input when 'From input' or 'auto_snap' was applied.",
+        "Final output width.",
+        "Final output height.",
+        "width / height as a float, rounded to 4 decimals.",
+    )
     FUNCTION = "calc"
     CATEGORY = "MoBo Nodes"
 
-    def calc(self, ratio, target_longest_side, divisible_by,
+    def calc(self, ratio, target_short_side, divisible_by,
              image=None, input_width=None, input_height=None,
-             auto_snap=False, custom_ratio_w=None, custom_ratio_h=None):
+             auto_snap=False, custom_ratio_w=None, custom_ratio_h=None,
+             output_width=None, output_height=None):
         if input_width is None:
             input_width = 0
         if input_height is None:
@@ -87,6 +110,10 @@ class MoBo_AspectRatio:
             custom_ratio_w = 16
         if custom_ratio_h is None:
             custom_ratio_h = 9
+        if output_width is None:
+            output_width = 0
+        if output_height is None:
+            output_height = 0
 
         # Step 1: Determine source dimensions (image takes priority over raw ints)
         src_w, src_h = 0, 0
@@ -130,7 +157,12 @@ class MoBo_AspectRatio:
             ratio_string = ratio
 
         # Step 3: Compute resolution
-        w, h = compute_resolution(rw, rh, target_longest_side, divisible_by)
+        w, h = compute_resolution(rw, rh, target_short_side, divisible_by)
+
+        # Step 4: Allow manual override via output_width/output_height
+        if output_width > 0 and output_height > 0:
+            w = output_width
+            h = output_height
 
         ratio_float = round(w / h, 4) if h > 0 else 0.0
 
