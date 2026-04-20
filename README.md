@@ -1,6 +1,6 @@
 # MoBo Nodes
 
-Custom utility nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Focused on image handling, aspect ratio management, cropping, and filename composition — filling gaps not covered by built-in nodes.
+Custom utility nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Focused on image loading, aspect ratio management, visual cropping + masking, and filename composition — filling gaps not covered by built-in nodes.
 
 **Zero dependencies** — uses only standard ComfyUI types (IMAGE, MASK, INT, FLOAT, STRING). No external node packs required.
 
@@ -15,167 +15,222 @@ Restart ComfyUI. All nodes appear under the **MoBo Nodes** category.
 
 ## Nodes
 
+| Node | S&R name | One-liner |
+|---|---|---|
+| Load Image from Folder | `LoadImageFromFolder` | Browse images by subfolder |
+| **Load Image Plus** | `LoadImagePlus` | Feature-rich loader with built-in Crop+Mask editor, aspect/resolution control, and batch cycling |
+| Image Info | `ImageInfo` | Live dimension/ratio/megapixel panel on the node |
+| Aspect Ratio | `AspectRatio` | Snap to standard ratio, compute output width/height |
+| Crop to Ratio | `CropToRatio` | Anchor-based crop to target ratio |
+| **Interactive Crop** | `InteractiveCrop` | Full-screen popup editor: crop, mask, rotate, flip, pad |
+| Filename Builder | `FilenameBuilder` | Compose filenames + folders from `{variable}` templates |
+
+---
+
 ### Load Image from Folder
 
 Browse and load images by folder — unlike the built-in Load Image node which dumps all input images into a single flat list.
-
-**S&R name:** `LoadImageFromFolder`
 
 | | |
 |---|---|
 | **Inputs** | `subfolder` (dropdown), `image` (dropdown) |
 | **Outputs** | `image` (IMAGE), `mask` (MASK), `folder` (STRING), `filename` (STRING) |
 
-**Features:**
-- **Folder browser** — dropdown lists all subfolders under ComfyUI's `input/` directory, including nested folders
-- **Dynamic image list** — selecting a folder instantly populates the image dropdown with only the images in that folder
-- **Image preview** — selected image renders directly on the node tile
-- **Upload** — `Upload Image` button or drag-and-drop files onto the node; uploads go into the currently selected subfolder
-- **Workflow persistence** — saved folder/image selections restore correctly when reopening a workflow
+- Folder dropdown lists all subfolders under `input/`, including nested folders
+- Selecting a folder repopulates the image dropdown
+- Image preview drawn on the node tile
+- Upload button + drag-and-drop into the currently selected subfolder
+- Workflow persistence: saved folder/image restore correctly when reopening
 
-The `folder` output returns the relative subfolder name (e.g. `"photos/vacation"`), and `filename` returns just the filename (e.g. `"IMG_001.jpg"`).
+---
+
+### Load Image Plus
+
+A feature-rich loader with everything the basic loader has **plus** aspect/resolution control, a full-screen Crop + Mask editor, filename-template widgets, and batch cycling.
+
+| | |
+|---|---|
+| **Required inputs** | `use_output_dir`, `subfolder`, `image`, `aspect_ratio`, `resolution_preset`, `target_resolution`, `snap_to_8` |
+| **Optional inputs (templates)** | `outfile_template`, `outfolder_template` |
+| **Hidden widgets** (exposed for `%LoadImagePlus.widget%` substitution) | `subfolderid`, `fileid`, `outfile`, `outfolder` |
+| **Outputs** | `image` (IMAGE), `mask` (MASK), `fileid` (STRING), `width` (INT), `height` (INT) |
+
+**Features:**
+
+- **Subfolder browser with counts** — top of the dropdown has `● [input]` / `○ [output]` mode switches; each folder shows its image count.
+- **Output dimensions** — short-side resolution presets (240p…2160p, or "Custom", or "From input") combined with an aspect ratio (standard list, or "From input" which snaps the image's own ratio to the nearest standard). Optional `snap_to_8` rounds the output width/height to multiples of 8.
+- **`Edit Image` button** — opens the shared [Crop/Mask editor](#the-cropmask-editor-shared-by-interactive-crop--load-image-plus) for the currently selected image.
+- **Upload** — upload or drag-and-drop an image; it goes into the currently selected subfolder.
+- **Output Name section** (collapsible):
+  - `outfile_template` and `outfolder_template` — `{variable}` templates resolved client-side into the hidden `outfile` / `outfolder` widgets.
+  - Reference the resolved values in SaveImage's `filename_prefix` as `%LoadImagePlus.outfile%` or `%LoadImagePlus.outfolder%`.
+  - Supported variables: `{subfolderid}`, `{fileid}`, `{filename}`, `{aspect}`, `{width}`, `{height}`, `{res}`, `{workflowname}`, `{date:FORMAT}` (where FORMAT uses `yyyy yy MM M dd d hh h mm m ss s`).
+  - Any `%…%` tokens pass through for SaveImage to resolve.
+- **After generate** — standard ComfyUI "control after generate" cycling (fixed / increment / decrement / randomize) so you can batch-process a folder.
+- **`fileid`** output — 5-char base36 hash of the filename (filename-safe, deterministic); also echoed into the `fileid` widget so it's usable in templates.
+
+---
+
+### The Crop/Mask editor (shared by Interactive Crop + Load Image Plus)
+
+Full-screen popup editor with two tools, a transform strip, and padding / output-resolution controls.
+
+**Crop tool:**
+
+- **Ratio bar** — Free, Image (the source's own ratio), plus all standard ratios (1:1, 4:3, 3:4, 5:4, 4:5, 3:2, 2:3, 16:9, 9:16, 16:10, 10:16, 21:9, 9:21, 2:1, 1:2).
+- **Draw** — click on an empty area and drag to create a new crop rect.
+- **Move** — drag inside the rect to pan the image underneath (the rect stays as a static viewfinder).
+- **Resize** — drag the corner/edge handles (corners only when ratio-locked).
+- **Scroll to zoom** — wheel zooms the image under the static rect; rect itself stays the same on-screen size.
+- **Rule-of-thirds grid**, dimmed area outside the rect, lock icon when ratio-locked.
+
+**Transform strip (crop mode):**
+
+- `⟳ 90°`, `↔` flip horizontal, `↕` flip vertical.
+- **Freehand rotation slider** (−45° to +45°, snaps to 0 at ±1°). Rotation pivots around the crop center.
+- **Constrain to image** checkbox *(default ON)*:
+  - **ON**: the crop is clamped to stay fully inside the rotated image. Rotating shrinks the crop to the largest inscribed rect; zoom/pan/resize are bounded so the rotated crop always fits.
+  - **OFF**: the crop can extend past the image. Rotating grows the crop to the outer bounding box of the rotated image so the whole image survives into the output, with padding at the corners.
+- **Pad:** dropdown — Transparent / Color / Noise. Controls how areas outside the source image are filled on save.
+- **Res:** dropdown — output resolution mode:
+  - *Match source* — output short side ≤ source short side (no upscale).
+  - *Balanced* (default) — geometric mean between Match and Native.
+  - *Native (max)* — 1:1 with source pixels; preserves maximum detail at the cost of larger files that grow with rotation/padding.
+
+**Mask tool:**
+
+- **Brush** with adjustable size (slider + mouse wheel).
+- **Add / Remove** modes (right-click also erases).
+- **Fill mode** — Transparent / Color / Noise / Blur (light/medium/heavy).
+- **Eyedropper** — pick color directly from the image.
+- **Undo / Redo** (Ctrl+Z / Ctrl+Y, up to 30 steps).
+- **Apply Mask** bakes the fill into the working image.
+- **💾 Mask** — saves the painted mask as a grayscale PNG alongside the image.
+
+**Save / Apply:**
+
+- **💾 Save** — writes the current crop + transform + mask output to the input folder. Filename postfixes are auto-appended (`_cropped`, `_crop-16x9`, `_r-12`, `_flipH`, `_masked`, `_noised`, `_blurred`, `_filled`…).
+- **Apply** (Interactive Crop only) — writes crop x/y/width/height back into the node widgets without saving a new file.
+- **Reset** — in crop mode resets *both* the crop region and the transform (rotation + flips). In mask mode clears the painted mask.
+- **Keyboard**: Enter = Apply, Esc = Cancel, R = Reset (crop mode).
+
+Drag and mouseup are handled on the entire overlay, so drags survive leaving the canvas area.
 
 ---
 
 ### Image Info
 
-Displays comprehensive image metadata at edit time — no need to run the workflow first.
+Displays image metadata at edit time — no need to run the workflow first.
 
 | | |
 |---|---|
 | **Inputs** | `image` (IMAGE) |
 | **Outputs** | `width` (INT), `height` (INT), `ratio_float` (FLOAT), `closest_ratio` (STRING), `exact_ratio` (STRING), `orientation` (STRING), `megapixels` (FLOAT) |
 
-**Features:**
-- **Live info panel** drawn directly on the node showing all values at edit time
-- **Smart ratio detection** — `closest_ratio` finds the nearest standard ratio (e.g. reports `"16:9"` for a 1920x1074 image, not `"320:179"`)
-- **Exact ratio** — GCD-reduced ratio for precise values
-- **Toggle button** — show/hide the info panel to save canvas space
-- **Chain-aware** — walks upstream through connected nodes to find a preview image (works even when connected through other processing nodes)
+- Live info panel drawn directly on the node
+- `closest_ratio` reports the nearest standard (e.g. `16:9` for 1920×1074, not `320:179`)
+- Chain-aware — walks upstream through connected nodes to find a preview image
+- Toggle button to hide/show the info panel
 
-Supported standard ratios: 1:1, 4:3, 3:4, 5:4, 4:5, 3:2, 2:3, 16:9, 9:16, 16:10, 10:16, 21:9, 9:21, 2:1, 1:2
+Supported standard ratios: 1:1, 4:3, 3:4, 5:4, 4:5, 3:2, 2:3, 16:9, 9:16, 16:10, 10:16, 21:9, 9:21, 2:1, 1:2.
 
 ---
 
 ### Aspect Ratio
 
-Select or auto-detect an aspect ratio and compute a concrete pixel resolution. Feed the width/height outputs directly into Empty Latent Image, WanImageToVideo, or ImageScale.
+Select or auto-detect an aspect ratio and compute a concrete pixel resolution. Feed the width/height directly into Empty Latent Image, WanImageToVideo, or ImageScale.
 
 | | |
 |---|---|
-| **Required inputs** | `ratio` (dropdown), `target_longest_side` (INT), `divisible_by` (INT) |
-| **Optional inputs** | `image` (IMAGE), `input_width` (INT), `input_height` (INT), `auto_snap` (BOOLEAN), `custom_ratio_w` (INT), `custom_ratio_h` (INT) |
+| **Required** | `ratio`, `target_longest_side` (INT), `divisible_by` (INT) |
+| **Optional** | `image` (IMAGE), `input_width` (INT), `input_height` (INT), `auto_snap` (BOOLEAN), `custom_ratio_w` (INT), `custom_ratio_h` (INT) |
 | **Outputs** | `ratio_string` (STRING), `width` (INT), `height` (INT), `ratio_float` (FLOAT) |
 
-**Features:**
-- **Standard ratio presets** — 1:1, 4:3, 3:4, 5:4, 4:5, 3:2, 2:3, 16:9, 9:16, 16:10, 10:16, 21:9, 9:21, 2:1, 1:2, plus Custom and From input
-- **From input** — set ratio to "From input" to derive the ratio from a connected image or width/height INT inputs
-- **Auto-snap** — automatically detect and snap to the nearest standard ratio from the input source
-- **Custom ratio** — set `ratio` to "Custom" and use `custom_ratio_w` / `custom_ratio_h` for any arbitrary ratio
-- **Divisibility** — output dimensions are snapped to multiples of `divisible_by` (default 8), ensuring compatibility with latent space operations
-- **Model-agnostic** — no model-specific presets; just set `target_longest_side` to whatever your model needs (e.g. 1280 for SDXL, 832 for SD1.5, 480-832 for Wan)
-
-**Typical I2V wiring:**
-
-```
-Interactive Crop ──→ width, height ──→ Aspect Ratio (From input, target: 832) ──→ width, height ──→ WanImageToVideo
-```
+- Standard ratio presets + Custom + "From input"
+- `auto_snap` automatically snaps to the nearest standard ratio from the input source
+- Dimensions snapped to multiples of `divisible_by` (default 8) for latent-space compatibility
+- Model-agnostic — set `target_longest_side` to whatever your model wants (1280 for SDXL, 832 for SD1.5, 480–832 for Wan, etc.)
 
 ---
 
 ### Crop to Ratio
 
-Crop an image to a target aspect ratio using anchor-based positioning.
+Anchor-based crop to a target aspect ratio (non-interactive; for workflow-level ratio enforcement).
 
 | | |
 |---|---|
-| **Required inputs** | `image` (IMAGE), `ratio` (dropdown), `anchor` (dropdown) |
-| **Optional inputs** | `custom_ratio_w` (INT), `custom_ratio_h` (INT) |
+| **Required** | `image` (IMAGE), `ratio`, `anchor` |
+| **Optional** | `custom_ratio_w` (INT), `custom_ratio_h` (INT) |
 | **Outputs** | `image` (IMAGE), `mask` (MASK), `x` (INT), `y` (INT), `crop_width` (INT), `crop_height` (INT), `width` (INT), `height` (INT) |
 
-**Features:**
-- **Same ratio presets** as Aspect Ratio node, plus Custom
-- **9 anchor positions** — center, top-left, top-center, top-right, center-left, center-right, bottom-left, bottom-center, bottom-right
-- **Maximum crop** — always computes the largest possible crop region that fits the target ratio
-- **Mask output** — a mask of the original image dimensions with the crop region filled (useful for inpainting workflows)
-- **Coordinate outputs** — `x`, `y`, `crop_width`, `crop_height` as plain INTs, compatible with the built-in ImageCrop node
+- Same ratio presets as the Aspect Ratio node, plus Custom
+- 9 anchor positions — center, top-left/top/top-right, center-left/center-right, bottom-left/bottom/bottom-right
+- Always computes the *largest* crop that fits the target ratio
+- Mask output at the original dimensions with the crop region filled (useful for inpainting)
 
 ---
 
 ### Interactive Crop
 
-Visual crop editor with a fullscreen popup — draw, move, and resize a crop region with your mouse at edit time.
+Visual crop editor using the full-screen popup editor described [above](#the-cropmask-editor-shared-by-interactive-crop--load-image-plus). Writes back to node widgets so downstream nodes can crop.
 
 | | |
 |---|---|
 | **Inputs** | `image` (IMAGE), `crop_x` (INT), `crop_y` (INT), `crop_width` (INT), `crop_height` (INT) |
 | **Outputs** | `image` (IMAGE), `mask` (MASK), `x` (INT), `y` (INT), `width` (INT), `height` (INT) |
 
-**Features:**
-- **`Select Crop Region` button** — opens a fullscreen popup overlay showing the connected source image
-- **Ratio toolbar** — row of buttons in the popup for standard ratios, plus:
-  - **Image** (default) — locks to the input image's own aspect ratio
-  - **Free** — freeform, no constraint
-  - Switching ratios resets to the largest possible crop for that ratio
-- **Draw** — click and drag on empty space to draw a new crop rectangle
-- **Move** — drag inside the rectangle to reposition it
-- **Resize** — drag corner handles (proportional when ratio-locked) or edge handles (freeform only)
-- **Visual feedback** — dimmed area outside the crop, rule-of-thirds grid, lock icon, live coordinate and ratio readout
-- **Save Cropped** — saves the cropped region at full resolution to the same input folder with a `_cropped` suffix
-- **Reset** — restores crop to the largest possible region for the current ratio
-- **Keyboard shortcuts** — Enter to apply, Escape to cancel
+- **`Show & Edit Image` button** — opens the popup editor with all crop/mask/transform/padding/resolution controls.
+- **Apply** in the editor writes `x`/`y`/`width`/`height` back into the node widgets.
+- **💾 Save** writes a new file to the input folder (see Save filename postfixes above).
 
-**Note:** The popup needs to preview the source image. Works automatically when connected to Load Image from Folder or any node with a preview. For other sources, run the workflow once first.
+**Note:** The popup needs a preview of the source image. Works out of the box when connected to Load Image, Load Image from Folder, Load Image Plus, or any node with a preview; for other sources, run the workflow once first.
 
 ---
 
 ### Filename Builder
 
-Compose output filenames from input parts using a template. Designed to work alongside ComfyUI's native `%date%` and `%NodeName.widget%` template system in SaveImage.
+Compose **both** a filename and a folder path from `{variable}` templates. Designed to work alongside ComfyUI's native `%date%` and `%NodeName.widget%` token system in SaveImage.
 
 | | |
 |---|---|
-| **Required inputs** | `template` (STRING, multiline) |
-| **Optional inputs** | `folder` (STRING), `filename` (STRING), `prefix` (STRING), `suffix` (STRING), `width` (INT), `height` (INT) |
-| **Outputs** | `filename` (STRING), `folder` (STRING passthrough) |
+| **Required** | `filename_template` (STRING), `folder_template` (STRING) |
+| **Optional** | `folder`, `filename`, `fileid`, `prefix`, `suffix`, `width` (INT), `height` (INT) |
+| **Outputs** | `filename` (STRING), `folder` (STRING) |
 
-**Template variables** (use `{variable}` syntax):
+**Template variables** (`{variable}` syntax):
 
 | Variable | Source | Example |
 |---|---|---|
-| `{folder}` | folder input, path separators become underscores | `ships` |
-| `{name}` | filename input, extension stripped | `frigate_sails01` |
+| `{folder}` | folder input (path separators preserved) | `ships/frigates` |
+| `{filename}` or `{name}` | filename input, extension stripped | `frigate_sails01` |
 | `{ext}` | extension from filename | `jpg` |
-| `{prefix}` | prefix input | `render` |
-| `{suffix}` | suffix input | `HD-60FPS` |
-| `{width}` | width input (omitted if 0) | `1280` |
-| `{height}` | height input (omitted if 0) | `720` |
-| `{res}` | widthxheight shorthand | `1280x720` |
+| `{fileid}` | short heuristic id (e.g. from Load Image Plus) | `rni52` |
+| `{prefix}` / `{suffix}` | prefix / suffix inputs | `render` / `HD-60FPS` |
+| `{width}` / `{height}` | dimensions (empty if 0) | `1280` / `720` |
+| `{res}` | width×height shorthand | `1280x720` |
+| `{aspect}` | filename-safe ratio snapped to nearest standard | `16x9` |
 
-ComfyUI's native `%tokens%` (like `%date:yyyy_MM_dd%`) **pass through unchanged** for SaveImage to resolve. You can mix both:
+ComfyUI's native `%tokens%` (like `%date:yyyy_MM_dd%`, `%LoadImagePlus.outfile%`) **pass through unchanged** for SaveImage to resolve. You can mix both:
 
 ```
-{folder}_{name}_%date:yyyy_MM_dd%_{suffix}
+{folder}/{fileid}_{aspect}_%date:yyyy_MM_dd%_{suffix}
 ```
 
-**Examples:**
+Cleanup is minimal — every character you type is preserved (including `:` for date tokens and `/` for subfolders); only backslashes become forward slashes and consecutive `/`, `_`, `-` runs are collapsed.
 
-| Template | Result |
-|---|---|
-| `{folder}_{name}` | `ships_frigate_sails01` |
-| `{name}_{res}` | `frigate_sails01_1280x720` |
-| `{folder}_{name}_%date:yyyy_MM_dd%_{suffix}` | `ships_frigate_sails01_%date:yyyy_MM_dd%_HD-60FPS` |
-
-Empty/unconnected variables produce nothing (no double separators). SaveImage adds its own counter and file extension.
+---
 
 ## Example Workflow: I2V with Wan
 
 ```
-Load Image from Folder ──→ IMAGE ──→ Interactive Crop ──→ IMAGE ──────────→ WanImageToVideo
-       ↓ folder, filename                  ↓ width, height                        ↑
-       ↓                              Aspect Ratio (From input, 832) → w, h ──────┘
-       ↓
-  Filename Builder ({folder}_{name}_%date:yyyy_MM_dd%_{suffix}) ──→ SaveVideo filename
+Load Image Plus ──→ IMAGE ──→ Interactive Crop ──→ IMAGE ──────────→ WanImageToVideo
+     ↓ fileid, width, height         ↓ width, height                     ↑
+     ↓                     Aspect Ratio (From input, 832) → w, h ────────┘
+     ↓
+Filename Builder
+  filename_template: {fileid}_{aspect}_%date:yyyy_MM_dd%
+  folder_template:   {folder}
+  ──→ SaveVideo filename_prefix + output dir
 ```
 
 ## Compatibility
