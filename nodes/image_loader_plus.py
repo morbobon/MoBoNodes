@@ -15,20 +15,27 @@ from .image_loader import get_subfolders, get_images_in_folder
 # --- Resolution helpers ---
 
 RESOLUTION_PRESETS = [
-    "From input", "240p", "320p", "360p", "480p", "576p",
-    "720p", "1080p", "1440p", "2160p", "Custom",
+    "From input",
+    "240p", "280p", "304p", "320p", "360p", "400p", "416p", "480p", "504p",
+    "576p", "720p", "1080p", "1440p", "2160p",
+    "Custom",
 ]
 
 RESOLUTION_MAP = {
-    "240p": 240, "320p": 320, "360p": 360, "480p": 480, "576p": 576,
+    "240p": 240, "280p": 280, "304p": 304, "320p": 320, "360p": 360,
+    "400p": 400, "416p": 416, "480p": 480, "504p": 504, "576p": 576,
     "720p": 720, "1080p": 1080, "1440p": 1440, "2160p": 2160,
 }
 
 ASPECT_RATIO_OPTIONS = list(STANDARD_RATIOS.keys()) + ["From input"]
 
 
-def compute_target_dims(img_w, img_h, aspect_ratio, resolution_preset, target_resolution, snap_to_8):
-    """Return (out_w, out_h) using aspect ratio + short-side resolution."""
+def compute_target_dims(img_w, img_h, aspect_ratio, resolution_preset, target_resolution, snap_to_8, longest_side=False):
+    """Return (out_w, out_h) using aspect ratio + resolution preset.
+
+    `longest_side` controls whether the resolution preset value (e.g. 720p)
+    refers to the SHORT side (default) or the LONG side of the output.
+    """
     # Determine ratio
     if aspect_ratio == "From input":
         if img_w > 0 and img_h > 0:
@@ -39,16 +46,19 @@ def compute_target_dims(img_w, img_h, aspect_ratio, resolution_preset, target_re
     else:
         rw, rh = STANDARD_RATIOS.get(aspect_ratio, (1, 1))
 
-    # "From input" resolution: preserve image dimensions (or apply ratio to image's short side)
+    # "From input" resolution: preserve image dimensions (or apply ratio to a side)
     if resolution_preset == "From input":
         if aspect_ratio == "From input" and img_w > 0 and img_h > 0:
             return img_w, img_h
-        short = min(img_w, img_h) if min(img_w, img_h) > 0 else 512
+        if longest_side:
+            side = max(img_w, img_h) if max(img_w, img_h) > 0 else 512
+        else:
+            side = min(img_w, img_h) if min(img_w, img_h) > 0 else 512
     else:
-        short = RESOLUTION_MAP.get(resolution_preset, target_resolution)
+        side = RESOLUTION_MAP.get(resolution_preset, target_resolution)
 
     divisible_by = 8 if snap_to_8 else 1
-    return compute_resolution(rw, rh, short, divisible_by)
+    return compute_resolution(rw, rh, side, divisible_by, longest_side=longest_side)
 
 
 def _resolve_base_dir(use_output_dir):
@@ -113,6 +123,9 @@ class MoBo_ImageLoaderPlus:
                     "tooltip": "Custom short-side pixel count. Only used when resolution_preset = 'Custom'."}),
                 "snap_to_8": ("BOOLEAN", {"default": True,
                     "tooltip": "Round output width and height down to multiples of 8 (recommended for most diffusion models)."}),
+                "longest_side": ("BOOLEAN", {"default": False,
+                    "label_on": "longest", "label_off": "shortest",
+                    "tooltip": "Whether the resolution preset (e.g. '720p') refers to the LONGEST or SHORTEST side of the output. Default: shortest. With ON, '720p' on a 16:9 ratio gives 720×405 instead of 1280×720."}),
             },
             "optional": {
                 "subfolderid": ("STRING", {"default": "",
@@ -120,13 +133,11 @@ class MoBo_ImageLoaderPlus:
                 "fileid": ("STRING", {"default": "",
                     "tooltip": "5-char base36 hash of the filename (mirrors the fileid output as a widget so %LoadImagePlus.fileid% works in SaveImage filename_prefix)."}),
                 "outfile_template": ("STRING", {
-                    "default": "{subfolderid}-{fileid}_{workflowname}_{aspect}{date:hhmmss}",
-                    "multiline": True,
+                    "default": "{subfolderid}-{fileid}{workflowname}_{date:hhMM}-",
                     "tooltip": "Template for the filename. Variables: {subfolderid}, {fileid}, {filename}, {aspect}, {width}, {height}, {res}, {workflowname}, {date:FORMAT} (yyyy yy MM M dd d hh h mm m ss s). Resolved client-side. The RESOLVED value is in the hidden 'outfile' widget — reference via %LoadImagePlus.outfile% in SaveImage filename_prefix. Any %Node.widget% tokens still pass through for SaveImage to resolve.",
                 }),
                 "outfolder_template": ("STRING", {
                     "default": "{date:yyyy_MM_dd}",
-                    "multiline": True,
                     "tooltip": "Template for the folder. Same variables as outfile_template (incl. {date:FORMAT} and {workflowname}). Resolves into the hidden 'outfolder' widget — reference via %LoadImagePlus.outfolder%.",
                 }),
                 "outfile":   ("STRING", {"default": "",
@@ -149,6 +160,7 @@ class MoBo_ImageLoaderPlus:
     CATEGORY = "MoBo Nodes"
 
     def load_image(self, use_output_dir, subfolder, image, aspect_ratio, resolution_preset, target_resolution, snap_to_8,
+                   longest_side=False,
                    subfolderid="", fileid="", outfile="", outfolder="",
                    outfile_template="", outfolder_template=""):
         # All UI-only widgets (computed client-side for %Node.widget% substitution); ignored here
@@ -208,13 +220,14 @@ class MoBo_ImageLoaderPlus:
 
         img_w = output_image.shape[2]
         img_h = output_image.shape[1]
-        out_w, out_h = compute_target_dims(img_w, img_h, aspect_ratio, resolution_preset, target_resolution, snap_to_8)
+        out_w, out_h = compute_target_dims(img_w, img_h, aspect_ratio, resolution_preset, target_resolution, snap_to_8, longest_side=longest_side)
 
         fileid = generate_fileid(subfolder_rel, image)
         return (output_image, output_mask, fileid, out_w, out_h)
 
     @classmethod
     def IS_CHANGED(s, use_output_dir, subfolder, image, aspect_ratio, resolution_preset, target_resolution, snap_to_8,
+                   longest_side=False,
                    subfolderid="", fileid="", outfile="", outfolder="",
                    outfile_template="", outfolder_template=""):
         base_dir = _resolve_base_dir(use_output_dir)
@@ -229,6 +242,7 @@ class MoBo_ImageLoaderPlus:
 
     @classmethod
     def VALIDATE_INPUTS(s, use_output_dir, subfolder, image, aspect_ratio, resolution_preset, target_resolution, snap_to_8,
+                        longest_side=False,
                         subfolderid="", fileid="", outfile="", outfolder="",
                         outfile_template="", outfolder_template=""):
         base_dir = _resolve_base_dir(use_output_dir)

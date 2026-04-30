@@ -37,14 +37,31 @@ def snap_to_nearest_ratio(w, h):
     return best_name
 
 
-def compute_resolution(ratio_w, ratio_h, target_short_side, divisible_by=8):
-    """Compute width and height from ratio + target short side, ensuring divisibility."""
-    if ratio_w <= ratio_h:
-        w = target_short_side
-        h = round(w * ratio_h / ratio_w)
+def compute_resolution(ratio_w, ratio_h, target_side, divisible_by=8, longest_side=False):
+    """Compute width and height from a ratio + a target pixel count for one side.
+
+    If `longest_side` is False (default), `target_side` is the SHORT side.
+    If True, it's the LONG side. The other dimension is derived from the
+    aspect ratio. Both outputs are rounded down to the nearest multiple of
+    `divisible_by` (with a floor of `divisible_by`).
+    """
+    portrait = ratio_w <= ratio_h
+    if longest_side:
+        # The longer side gets the target pixel count
+        if portrait:
+            h = target_side
+            w = round(h * ratio_w / ratio_h)
+        else:
+            w = target_side
+            h = round(w * ratio_h / ratio_w)
     else:
-        h = target_short_side
-        w = round(h * ratio_w / ratio_h)
+        # Short-side mode (legacy default)
+        if portrait:
+            w = target_side
+            h = round(w * ratio_h / ratio_w)
+        else:
+            h = target_side
+            w = round(h * ratio_w / ratio_h)
 
     w = max(divisible_by, (w // divisible_by) * divisible_by)
     h = max(divisible_by, (h // divisible_by) * divisible_by)

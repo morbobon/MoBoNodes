@@ -5,6 +5,7 @@ from .nodes.aspect_ratio import MoBo_AspectRatio
 from .nodes.crop_to_ratio import MoBo_CropToRatio
 from .nodes.interactive_crop import MoBo_InteractiveCrop
 from .nodes.filename_builder import MoBo_FilenameBuilder
+from .nodes.string_selector_plus import MoBo_StringSelectorPlus
 
 NODE_CLASS_MAPPINGS = {
     "LoadImageFromFolder": MoBo_FolderImageLoader,
@@ -14,6 +15,7 @@ NODE_CLASS_MAPPINGS = {
     "CropToRatio": MoBo_CropToRatio,
     "InteractiveCrop": MoBo_InteractiveCrop,
     "FilenameBuilder": MoBo_FilenameBuilder,
+    "StringSelectorPlus": MoBo_StringSelectorPlus,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -24,6 +26,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "CropToRatio": "Crop to Ratio",
     "InteractiveCrop": "Interactive Crop",
     "FilenameBuilder": "Filename Builder",
+    "StringSelectorPlus": "String Selector Plus",
 }
 
 WEB_DIRECTORY = "./web/js"

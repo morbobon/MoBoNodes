@@ -45,25 +45,37 @@ for (const [name] of Object.entries(STANDARD_RATIOS)) {
 // --- Resolution computation (mirrors Python logic) ---------------------------
 
 const RESOLUTION_MAP = {
-    "240p": 240, "320p": 320, "360p": 360, "480p": 480, "576p": 576,
+    "240p": 240, "280p": 280, "304p": 304, "320p": 320, "360p": 360,
+    "400p": 400, "416p": 416, "480p": 480, "504p": 504, "576p": 576,
     "720p": 720, "1080p": 1080, "1440p": 1440, "2160p": 2160,
 };
 
-function computeResolution(rw, rh, targetShortSide, divisibleBy) {
+function computeResolution(rw, rh, targetSide, divisibleBy, longestSide = false) {
     let w, h;
-    if (rw <= rh) {
-        w = targetShortSide;
-        h = Math.round(w * rh / rw);
+    const portrait = rw <= rh;
+    if (longestSide) {
+        if (portrait) {
+            h = targetSide;
+            w = Math.round(h * rw / rh);
+        } else {
+            w = targetSide;
+            h = Math.round(w * rh / rw);
+        }
     } else {
-        h = targetShortSide;
-        w = Math.round(h * rw / rh);
+        if (portrait) {
+            w = targetSide;
+            h = Math.round(w * rh / rw);
+        } else {
+            h = targetSide;
+            w = Math.round(h * rw / rh);
+        }
     }
     w = Math.max(divisibleBy, Math.floor(w / divisibleBy) * divisibleBy);
     h = Math.max(divisibleBy, Math.floor(h / divisibleBy) * divisibleBy);
     return { w, h };
 }
 
-function computeTargetDims(imgW, imgH, aspectRatio, preset, customRes, snapTo8) {
+function computeTargetDims(imgW, imgH, aspectRatio, preset, customRes, snapTo8, longestSide = false) {
     let rw, rh;
     if (aspectRatio === "From input") {
         if (imgW > 0 && imgH > 0) {
@@ -80,12 +92,14 @@ function computeTargetDims(imgW, imgH, aspectRatio, preset, customRes, snapTo8) 
         if (aspectRatio === "From input" && imgW > 0 && imgH > 0) {
             return { w: imgW, h: imgH };
         }
-        const short = Math.min(imgW, imgH) > 0 ? Math.min(imgW, imgH) : 512;
-        return computeResolution(rw, rh, short, snapTo8 ? 8 : 1);
+        const side = longestSide
+            ? (Math.max(imgW, imgH) > 0 ? Math.max(imgW, imgH) : 512)
+            : (Math.min(imgW, imgH) > 0 ? Math.min(imgW, imgH) : 512);
+        return computeResolution(rw, rh, side, snapTo8 ? 8 : 1, longestSide);
     }
 
-    const short = preset in RESOLUTION_MAP ? RESOLUTION_MAP[preset] : customRes;
-    return computeResolution(rw, rh, short, snapTo8 ? 8 : 1);
+    const side = preset in RESOLUTION_MAP ? RESOLUTION_MAP[preset] : customRes;
+    return computeResolution(rw, rh, side, snapTo8 ? 8 : 1, longestSide);
 }
 
 function getResolvedRatioName(aspectValue, imgW, imgH) {
@@ -140,6 +154,7 @@ app.registerExtension({
             const resPre          = node.widgets.find(w => w.name === "resolution_preset");
             const resTgt          = node.widgets.find(w => w.name === "target_resolution");
             const snapTo8W        = node.widgets.find(w => w.name === "snap_to_8");
+            const longestSideW    = node.widgets.find(w => w.name === "longest_side");
             const subfolderIdW    = node.widgets.find(w => w.name === "subfolderid");
             const fileidInputW    = node.widgets.find(w => w.name === "fileid");
             const outfileTplW     = node.widgets.find(w => w.name === "outfile_template");
@@ -343,7 +358,7 @@ app.registerExtension({
             // (outfileW and outfolderW are the hidden RESOLVED widgets — we'll keep them
             //  in place but permanently hidden. Templates go into the Output Name section.)
             node.widgets = node.widgets.filter(w =>
-                w !== aspectW && w !== resPre && w !== resTgt && w !== snapTo8W
+                w !== aspectW && w !== resPre && w !== resTgt && w !== snapTo8W && w !== longestSideW
                 && w !== outfileTplW && w !== outfolderTplW
             );
 
@@ -429,19 +444,80 @@ app.registerExtension({
             // This widget is UI-only, not a node input — don't serialize it to the prompt
             controlW.serialize = false;
 
-            // --- Live fileid display ------------------------------------------
-            // Uses the Python-defined 'fileid' input widget as the display. It's serialized
-            // (so %LoadImagePlus.fileid% resolves in SaveImage), and we make it read-only.
+            // --- fileid is computed but hidden ---------------------------------
+            // The widget still exists (so %LoadImagePlus.fileid% resolves in
+            // SaveImage filename_prefix), but we keep it off-screen — its
+            // contents are derived from the filename and don't need to be edited.
             const fileidWidget = fileidInputW;  // alias for clarity
-            if (fileidWidget) {
-                fileidWidget.disabled = true;
-            }
+            if (fileidWidget) hideWidget(fileidWidget);
 
             function updateFileidDisplay() {
                 if (!fileidWidget) return;
                 const filename = imageWidget.value;
                 fileidWidget.value = (filename && filename !== "none") ? simpleHash5(filename) : "";
                 app.graph.setDirtyCanvas(true);
+            }
+
+            // --- Archive Image button -----------------------------------------
+            // Moves the currently-selected file into an `archive/` subfolder
+            // alongside it (created if missing), then refreshes the list and
+            // advances to the next image so batch-processing flow continues.
+            const archiveBtn = node.addWidget("button", "🗄 Archive image", null, async () => {
+                const filename = imageWidget.value;
+                if (!filename || filename === "none") {
+                    archiveBtn.name = "🗄 Archive image";
+                    return;
+                }
+                const realSub = realPathFor(subfolderWidget.value) ?? ".";
+                const subForAPI = realSub === "." ? "" : realSub;
+                archiveBtn.name = "⏳ Archiving…";
+                app.graph.setDirtyCanvas(true);
+                try {
+                    const resp = await fetch("/mobo_nodes/image_loader/archive", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            type: sourceType(),
+                            subfolder: subForAPI,
+                            filename,
+                        }),
+                    });
+                    const json = await resp.json();
+                    if (!resp.ok || !json.ok) throw new Error(json.error || `HTTP ${resp.status}`);
+                    archiveBtn.name = `✅ → archive/${json.new_filename}`;
+                    // Pick the next image in the current folder so the user
+                    // can keep working without re-selecting manually.
+                    const list = imageWidget.options.values || [];
+                    const idx  = list.indexOf(filename);
+                    const nextSelect = list[(idx >= 0 ? idx + 1 : 0) % Math.max(1, list.length)];
+                    await refreshImages(subfolderWidget.value, nextSelect);
+                    // Counts in the subfolder dropdown have changed (one
+                    // moved out of the source, +1 in archive/) — refresh.
+                    refreshSubfolders().catch(() => {});
+                } catch (e) {
+                    console.error("Archive failed:", e);
+                    archiveBtn.name = "❌ Archive failed";
+                }
+                setTimeout(() => {
+                    archiveBtn.name = "🗄 Archive image";
+                    app.graph.setDirtyCanvas(true);
+                }, 2500);
+                app.graph.setDirtyCanvas(true);
+            });
+            archiveBtn.serialize = false;
+
+            // Move the Archive button to where the now-hidden `fileid` field
+            // used to sit visually (right under the image dropdown), instead
+            // of being appended at the end of the widget list.
+            {
+                const ws = node.widgets;
+                const btnIdx = ws.indexOf(archiveBtn);
+                if (btnIdx >= 0) {
+                    ws.splice(btnIdx, 1);
+                    const imgIdx = ws.indexOf(imageWidget);
+                    const insertAt = imgIdx >= 0 ? imgIdx + 1 : ws.length;
+                    ws.splice(insertAt, 0, archiveBtn);
+                }
             }
 
             function advanceImage() {
@@ -498,16 +574,18 @@ app.registerExtension({
             }
 
             function applyHeight() {
-                const widgetsH = node.computeSize()[1];
-                let h = widgetsH + GAP;
-                if (node._moboShowPreview && node.imgs?.length) h += PREVIEW_HEIGHT + GAP;
-                node.size[1] = h;
+                // node.computeSize() already includes the DOM preview's
+                // contribution (via getHeight) when it's visible. So we just
+                // resize to that. PREVIEW_HEIGHT is added/removed by the
+                // toggle setting the wrapper's display style.
+                node.size[1] = node.computeSize()[1];
             }
 
             function updateSectionLabel() {
                 const { w, h } = computeTargetDims(
                     node._moboImgW, node._moboImgH,
-                    aspectW.value, resPre.value, resTgt.value, snapTo8W.value
+                    aspectW.value, resPre.value, resTgt.value, snapTo8W.value,
+                    !!longestSideW?.value
                 );
                 const arrow = node._moboResExpanded ? "▼" : "▶";
                 const rName = getResolvedRatioName(aspectW.value, node._moboImgW, node._moboImgH);
@@ -528,16 +606,21 @@ app.registerExtension({
                     showWidget(resPre);
                     if (resPre.value === "Custom") showWidget(resTgt); else hideWidget(resTgt);
                     showWidget(snapTo8W);
+                    if (longestSideW) showWidget(longestSideW);
                 } else {
                     hideWidget(aspectW);
                     hideWidget(resPre);
                     hideWidget(resTgt);
                     hideWidget(snapTo8W);
+                    if (longestSideW) hideWidget(longestSideW);
                 }
                 updateSectionLabel();
                 applyHeight();
                 app.graph.setDirtyCanvas(true);
             }
+
+            // --- Preview DOM element refs (assigned later in node setup) ----
+            let _previewImg = null, _previewWrap = null;
 
             // --- Image probe (always fetch dimensions, even when preview off) ---
 
@@ -545,7 +628,7 @@ app.registerExtension({
                 if (!filename || filename === "none") {
                     node._moboImgW = 0;
                     node._moboImgH = 0;
-                    node.imgs = undefined;
+                    if (_previewImg) _previewImg.src = "";
                     updateSectionLabel();
                     applyHeight();
                     app.graph.setDirtyCanvas(true);
@@ -558,13 +641,15 @@ app.registerExtension({
                 img.onload = () => {
                     node._moboImgW = img.naturalWidth;
                     node._moboImgH = img.naturalHeight;
-                    node.imgs = node._moboShowPreview ? [img] : undefined;
+                    if (_previewImg) {
+                        _previewImg.src = node._moboShowPreview ? url : "";
+                    }
                     updateSectionLabel();
                     applyHeight();
                     app.graph.setDirtyCanvas(true);
                 };
                 img.onerror = () => {
-                    node.imgs = undefined;
+                    if (_previewImg) _previewImg.src = "";
                     applyHeight();
                     app.graph.setDirtyCanvas(true);
                 };
@@ -703,9 +788,11 @@ app.registerExtension({
 
             // Push resolution + aspect ratio widgets after section toggle
             node.widgets.push(aspectW, resPre, resTgt, snapTo8W);
+            if (longestSideW) node.widgets.push(longestSideW);
 
             // Start collapsed
             hideWidget(aspectW); hideWidget(resPre); hideWidget(resTgt); hideWidget(snapTo8W);
+            if (longestSideW) hideWidget(longestSideW);
 
             // --- Section toggle (collapsible Output Name) --------------------
             // Contains the TEMPLATE widgets (user-editable). The resolved
@@ -763,13 +850,44 @@ app.registerExtension({
                 node._moboShowPreview = value;
                 node.properties = node.properties || {};
                 node.properties.showPreview = value;
-                if (!value) {
-                    node.imgs = undefined;
-                } else {
+                if (_previewWrap) _previewWrap.style.display = value ? "" : "none";
+                if (value) {
                     probeImage(subfolderWidget.value, imageWidget.value);
                 }
                 applyHeight();
                 app.graph.setDirtyCanvas(true);
+            });
+
+            // --- Preview as a DOM widget with fixed height -------------------
+            // Using a DOM widget instead of `node.imgs = [img]` so the preview
+            // area stays a constant height regardless of image aspect ratio.
+            // (ComfyUI's built-in `node.imgs` auto-fits the node to the
+            // image's aspect, which made the node grow/shrink per image.)
+            _previewWrap = document.createElement("div");
+            _previewWrap.style.cssText = `
+                width: 100%;
+                height: ${PREVIEW_HEIGHT}px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #1a1a2e;
+                border: 1px solid #333;
+                border-radius: 4px;
+                overflow: hidden;
+                box-sizing: border-box;
+            `;
+            _previewImg = document.createElement("img");
+            _previewImg.style.cssText = `
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+                display: block;
+            `;
+            _previewWrap.appendChild(_previewImg);
+            const _previewWidget = node.addDOMWidget("preview", "div", _previewWrap, {
+                serialize: false,
+                hideOnZoom: false,
+                getHeight: () => PREVIEW_HEIGHT,
             });
 
             // --- Widget callbacks --------------------------------------------
@@ -781,13 +899,36 @@ app.registerExtension({
                 app.graph.setDirtyCanvas(true);
             };
 
-            // Coerce any value (string, preset like "360p", etc.) to a valid INT for target_resolution
+            // Coerce any value (string, preset like "360p", float drift, etc.)
+            // to a clean INT for target_resolution. Always rounds to integer;
+            // if snap_to_8 is on, additionally snaps to the nearest multiple
+            // of 8.
             function coerceResTgt() {
-                const v = resTgt.value;
-                if (typeof v === "number" && Number.isFinite(v)) return;
-                const m = String(v ?? "").match(/\d+/);
-                resTgt.value = m ? parseInt(m[0], 10) : 720;
+                let v = resTgt.value;
+                if (typeof v !== "number" || !Number.isFinite(v)) {
+                    const m = String(v ?? "").match(/\d+(?:\.\d+)?/);
+                    v = m ? parseFloat(m[0]) : 720;
+                }
+                v = Math.round(v); // always integer — kills any 303.0202 drift
+                if (snapTo8W.value) {
+                    v = Math.max(8, Math.round(v / 8) * 8);
+                } else {
+                    v = Math.max(1, v);
+                }
+                if (v !== resTgt.value) resTgt.value = v;
             }
+
+            // Adjust the INT widget's arrow-step. ComfyUI's number widget
+            // uses options.step (LiteGraph divides by 10 internally for the
+            // actual increment). step=80 → +8 per arrow click. step2 covers
+            // versions that read it directly.
+            function applyResTgtStep() {
+                if (!resTgt.options) return;
+                const s = snapTo8W.value ? 8 : 1;
+                resTgt.options.step  = s * 10; // LiteGraph divides by 10
+                resTgt.options.step2 = s;       // some renderers use this directly
+            }
+            applyResTgtStep();
             coerceResTgt(); // normalize any existing (possibly loaded) bad value
 
             // Force the serialized value sent to Python to always be an int
@@ -817,12 +958,45 @@ app.registerExtension({
             const origResTgtCb = resTgt.callback;
             resTgt.callback = (value) => {
                 origResTgtCb?.call(node, value);
-                coerceResTgt();
+                coerceResTgt();          // force int + snap immediately on change
                 updateSectionLabel();
+                app.graph.setDirtyCanvas(true);
+            };
+
+            // Defensive: ComfyUI's INT widget can mutate `widget.value`
+            // without calling `widget.callback` (some keyboard edit paths,
+            // and the "Value" prompt dialog accepts floats). Watch on every
+            // redraw, coerce to int + snap, and refresh the caption.
+            const origResTgtDraw = resTgt.draw;
+            let _lastResTgtSeen = resTgt.value;
+            resTgt.draw = function (...args) {
+                if (resTgt.value !== _lastResTgtSeen) {
+                    coerceResTgt();
+                    _lastResTgtSeen = resTgt.value;
+                    updateSectionLabel();
+                }
+                return origResTgtDraw?.apply(this, args);
             };
 
             const origSnapCb = snapTo8W.callback;
-            snapTo8W.callback = (value) => { origSnapCb?.call(node, value); updateSectionLabel(); };
+            snapTo8W.callback = (value) => {
+                origSnapCb?.call(node, value);
+                applyResTgtStep();   // arrow-step: 8 when snap on, 1 when off
+                // Re-snap the custom target_resolution so the field itself
+                // matches the snapping rule the user just toggled.
+                coerceResTgt();
+                updateSectionLabel();
+                app.graph.setDirtyCanvas(true);
+            };
+
+            if (longestSideW) {
+                const origLongestCb = longestSideW.callback;
+                longestSideW.callback = (value) => {
+                    origLongestCb?.call(node, value);
+                    updateSectionLabel();
+                    app.graph.setDirtyCanvas(true);
+                };
+            }
 
             // --- Drag-and-drop -----------------------------------------------
 
@@ -859,7 +1033,25 @@ app.registerExtension({
                     return;
                 }
                 await refreshImages(value);
+                // Re-fetch folder counts so the dropdown reflects any
+                // additions/archival/deletion that happened since the node
+                // was first loaded. The list is then re-rendered with fresh
+                // "(N)" suffixes for the next time the user opens it.
+                refreshSubfolders().catch(() => {});
             };
+
+            // Refresh folder counts the moment the user clicks the subfolder
+            // dropdown — that's the "I'm about to choose a folder" signal.
+            // Fire-and-forget: if the network is fast the menu shows fresh
+            // counts; otherwise the *next* click will. Either way, counts no
+            // longer drift after add/upload/archive operations.
+            {
+                const origMouse = subfolderWidget.mouse;
+                subfolderWidget.mouse = function (...args) {
+                    refreshSubfolders().catch(() => {});
+                    return origMouse?.apply(this, args);
+                };
+            }
 
             const origImgCb = imageWidget.callback;
             imageWidget.callback = (value) => {
@@ -881,6 +1073,7 @@ app.registerExtension({
             const MOBO_NAMED_WIDGETS = [
                 "use_output_dir", "subfolder", "image",
                 "aspect_ratio", "resolution_preset", "target_resolution", "snap_to_8",
+                "longest_side",
                 "subfolderid", "fileid",
                 "outfile_template", "outfolder_template", "outfile", "outfolder",
             ];
@@ -899,6 +1092,11 @@ app.registerExtension({
 
             const origOnConfigure = node.onConfigure;
             node.onConfigure = function (info) {
+                // Mark so the initial-populate IIFE below knows to skip its
+                // refreshImages() — otherwise the two race and the initial
+                // path (which has no saved filename) can clobber our restore
+                // with list[0].
+                node._moboFromWorkflow = true;
                 origOnConfigure?.call(node, info);
                 // Name-based restore — overrides any positionally-scrambled values.
                 // Safe for old workflows too (moboNamedValues just won't exist).
@@ -919,6 +1117,12 @@ app.registerExtension({
                 if (info.properties?.showPreview === false) {
                     node._moboShowPreview = false;
                     previewToggle.value = false;
+                }
+                // Restore "After generate" mode. The widget was created with
+                // node.properties empty (onConfigure runs after nodeCreated),
+                // so without this it always starts as "fixed".
+                if (info.properties?.controlAfterGenerate) {
+                    controlW.value = info.properties.controlAfterGenerate;
                 }
                 // Restore source type (default: input)
                 const savedSource = (info.properties?.sourceType === "output") ? "output" : "input";
@@ -951,7 +1155,15 @@ app.registerExtension({
             // Initial populate for a freshly-added node (not loaded from workflow).
             // onConfigure is only called when loading — so without this, a brand-new
             // node would show plain folder names with no counts and empty fileid.
+            //
+            // When loading a saved workflow, ComfyUI calls onConfigure shortly
+            // after nodeCreated. We wait one task tick so the flag set in
+            // onConfigure is visible, and skip the initial refresh in that
+            // case — otherwise this path would clobber the restored
+            // subfolder/image with list[0] due to its own refreshImages().
             (async () => {
+                await new Promise(r => setTimeout(r, 0));
+                if (node._moboFromWorkflow) return;
                 try {
                     await refreshSubfolders();
                     const root = Object.keys(pathsByDisplay).find(d => pathsByDisplay[d] === ".") || subfolderWidget.value;

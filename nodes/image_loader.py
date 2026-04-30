@@ -82,6 +82,71 @@ async def list_images(request):
     return web.json_response(images)
 
 
+@PromptServer.instance.routes.post("/mobo_nodes/image_loader/archive")
+async def archive_image(request):
+    """Move an image into an `archive/` subfolder of its current location.
+
+    Body (JSON): { type, subfolder, filename }
+      - type: 'input' or 'output'
+      - subfolder: source subfolder relative to the type's base dir (or '.')
+      - filename: image file to move
+
+    Creates `<base>/<subfolder>/archive/` if missing. If the destination
+    filename already exists, suffixes `_1`, `_2`, … to avoid clobbering.
+    Returns: { ok, archive_subfolder, new_filename }
+    """
+    try:
+        data = await request.json()
+        source_type = data.get("type", "input")
+        subfolder   = data.get("subfolder", ".") or "."
+        filename    = data.get("filename", "")
+
+        if not filename:
+            return web.json_response({"ok": False, "error": "missing filename"}, status=400)
+
+        base = _dir_for_type(source_type)
+        base_real = os.path.realpath(base)
+
+        # Resolve source
+        if subfolder == "." or subfolder == "":
+            src_dir = base
+            archive_rel = "archive"
+        else:
+            src_dir = os.path.join(base, subfolder)
+            archive_rel = subfolder.rstrip("/\\") + "/archive"
+
+        src_path = os.path.realpath(os.path.join(src_dir, filename))
+        if not src_path.startswith(base_real):
+            return web.json_response({"ok": False, "error": "path traversal blocked"}, status=400)
+        if not os.path.isfile(src_path):
+            return web.json_response({"ok": False, "error": "source file not found"}, status=404)
+
+        # Create archive folder
+        archive_dir = os.path.join(src_dir, "archive")
+        os.makedirs(archive_dir, exist_ok=True)
+
+        # De-collide destination filename
+        stem, ext = os.path.splitext(filename)
+        candidate = filename
+        i = 1
+        while os.path.exists(os.path.join(archive_dir, candidate)):
+            candidate = f"{stem}_{i}{ext}"
+            i += 1
+
+        dst_path = os.path.realpath(os.path.join(archive_dir, candidate))
+        if not dst_path.startswith(base_real):
+            return web.json_response({"ok": False, "error": "path traversal blocked"}, status=400)
+
+        os.replace(src_path, dst_path)
+        return web.json_response({
+            "ok": True,
+            "archive_subfolder": archive_rel,
+            "new_filename": candidate,
+        })
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 # --- Node ---
 
 class MoBo_FolderImageLoader:

@@ -24,6 +24,7 @@ Restart ComfyUI. All nodes appear under the **MoBo Nodes** category.
 | Crop to Ratio | `CropToRatio` | Anchor-based crop to target ratio |
 | **Interactive Crop** | `InteractiveCrop` | Full-screen popup editor: crop, mask, rotate, flip, pad |
 | Filename Builder | `FilenameBuilder` | Compose filenames + folders from `{variable}` templates |
+| **String Selector Plus** | `StringSelectorPlus` | Pick a line from a list, output the line + index, expose the line as a widget for filename use |
 
 ---
 
@@ -50,24 +51,35 @@ A feature-rich loader with everything the basic loader has **plus** aspect/resol
 
 | | |
 |---|---|
-| **Required inputs** | `use_output_dir`, `subfolder`, `image`, `aspect_ratio`, `resolution_preset`, `target_resolution`, `snap_to_8` |
+| **Required inputs** | `use_output_dir`, `subfolder`, `image`, `aspect_ratio`, `resolution_preset`, `target_resolution`, `snap_to_8`, `longest_side` |
 | **Optional inputs (templates)** | `outfile_template`, `outfolder_template` |
 | **Hidden widgets** (exposed for `%LoadImagePlus.widget%` substitution) | `subfolderid`, `fileid`, `outfile`, `outfolder` |
 | **Outputs** | `image` (IMAGE), `mask` (MASK), `fileid` (STRING), `width` (INT), `height` (INT) |
 
 **Features:**
 
-- **Subfolder browser with counts** — top of the dropdown has `● [input]` / `○ [output]` mode switches; each folder shows its image count.
-- **Output dimensions** — short-side resolution presets (240p…2160p, or "Custom", or "From input") combined with an aspect ratio (standard list, or "From input" which snaps the image's own ratio to the nearest standard). Optional `snap_to_8` rounds the output width/height to multiples of 8.
-- **`Edit Image` button** — opens the shared [Crop/Mask editor](#the-cropmask-editor-shared-by-interactive-crop--load-image-plus) for the currently selected image.
-- **Upload** — upload or drag-and-drop an image; it goes into the currently selected subfolder.
+- **Subfolder browser with counts** — top of the dropdown has `● [input]` / `○ [output]` mode switches; each folder shows its image count. Counts are auto-refreshed when you click the dropdown, change folder, or archive an image.
+- **Output Resolution section** (collapsible) — `aspect_ratio`, `resolution_preset`, `target_resolution`, `snap_to_8`, `longest_side`:
+  - **Resolution presets**: `From input`, `240p`, `280p`, `304p`, `320p`, `360p`, `400p`, `416p`, `480p`, `504p`, `576p`, `720p`, `1080p`, `1440p`, `2160p`, `Custom`. All preset values are multiples of 8.
+  - **Aspect ratio**: standard list, or `From input` (snaps the image's own ratio to the nearest standard).
+  - **`snap_to_8`**: rounds width/height to multiples of 8 — and *also* snaps the `target_resolution` field itself, including the arrow-step (±8 instead of ±1) when on.
+  - **`longest_side`**: which side the preset value refers to. `shortest` (default) → `720p` on 16:9 = 1280×720. `longest` → `720p` on 16:9 = 720×400.
+  - The collapsed header shows the resolved size, e.g. `▼ Output Resolution · 1280×720 (16:9)`.
+- **🗄 Archive image button** — moves the currently-selected file into an `archive/` subfolder alongside it (created on demand) and advances to the next image in the folder. Server-side, with path-traversal safety and de-collision (`name_1.jpg`, `_2`, …).
+- **`Edit image` button** — opens the shared [Crop/Mask editor](#the-cropmask-editor-shared-by-interactive-crop--load-image-plus) for the currently selected image.
+- **Upload** — upload or drag-and-drop an image; goes into the currently selected subfolder.
 - **Output Name section** (collapsible):
-  - `outfile_template` and `outfolder_template` — `{variable}` templates resolved client-side into the hidden `outfile` / `outfolder` widgets.
+  - Single-line `outfile_template` and `outfolder_template` — `{variable}` templates resolved client-side into hidden `outfile` / `outfolder` widgets.
   - Reference the resolved values in SaveImage's `filename_prefix` as `%LoadImagePlus.outfile%` or `%LoadImagePlus.outfolder%`.
-  - Supported variables: `{subfolderid}`, `{fileid}`, `{filename}`, `{aspect}`, `{width}`, `{height}`, `{res}`, `{workflowname}`, `{date:FORMAT}` (where FORMAT uses `yyyy yy MM M dd d hh h mm m ss s`).
+  - Supported variables: `{subfolderid}`, `{fileid}`, `{filename}`, `{aspect}`, `{width}`, `{height}`, `{res}`, `{workflowname}`, `{date:FORMAT}` (FORMAT uses `yyyy yy MM M dd d hh h mm m ss s`).
   - Any `%…%` tokens pass through for SaveImage to resolve.
-- **After generate** — standard ComfyUI "control after generate" cycling (fixed / increment / decrement / randomize) so you can batch-process a folder.
-- **`fileid`** output — 5-char base36 hash of the filename (filename-safe, deterministic); also echoed into the `fileid` widget so it's usable in templates.
+  - **Default templates** (pre-filled when you add the node):
+    - `outfile_template`: `{subfolderid}-{fileid}{workflowname}_{date:hhMM}-` → e.g. `dogs-puppies-rni52my_workflow_1430-`
+    - `outfolder_template`: `{date:yyyy_MM_dd}` → e.g. `2026_05_01`
+- **Show Preview** — toggleable fixed-height preview (the node's height stays constant regardless of the loaded image's aspect ratio).
+- **After generate** — standard ComfyUI "control after generate" cycling (`fixed` / `increment` / `decrement` / `randomize`) so you can batch-process a folder.
+- **`fileid`** output — 5-char base36 hash of the filename (filename-safe, deterministic). Folder path is *not* part of the hash — same filename in two folders → same `fileid`. The widget itself is hidden but still serialized so `%LoadImagePlus.fileid%` works in `filename_prefix`.
+- **State persistence** — all widget values save by name (not positionally), so reordering/renaming widgets in future versions doesn't scramble saved workflows.
 
 ---
 
@@ -217,6 +229,37 @@ ComfyUI's native `%tokens%` (like `%date:yyyy_MM_dd%`, `%LoadImagePlus.outfile%`
 ```
 
 Cleanup is minimal — every character you type is preserved (including `:` for date tokens and `/` for subfolders); only backslashes become forward slashes and consecutive `/`, `_`, `-` runs are collapsed.
+
+---
+
+### String Selector Plus
+
+A small extension of the Impact Pack `StringSelector` concept. Pick one line from a multiline list and use the resolved index to drive parallel switches (e.g. EasyUse `Text Index Switch`) elsewhere in the workflow, while embedding the chosen line's *name* in the saved filename.
+
+| | |
+|---|---|
+| **Required** | `select` (INT), `strings` (STRING, multiline) |
+| **Hidden widget** | `selected` (STRING — kept in sync client-side, exists for `%StringSelectorPlus.selected%` substitution) |
+| **Outputs** | `string` (STRING), `index` (INT) |
+
+- One entry per line; blank lines skipped. Use filename-safe names on each line if you want to reference them in filenames.
+- `select` wraps with modulo if it exceeds the entry count (Impact Pack semantics) — and the displayed value snaps to the wrapped index visually.
+- The hidden `selected` widget is updated on every change to `strings` or `select`, so SaveImage's `filename_prefix` can use `%StringSelectorPlus.selected%` and get the chosen line.
+- The list of entries renders below the editable textarea as a clickable list — the selected entry is highlighted in blue, and clicking any other entry sets `select` to that index.
+- The `strings` textarea itself is collapsible (`▼ / ▶ Entries (edit)` toggle) so the node stays compact once your list is set.
+- All values save by name in `node.properties.moboNamed`, robust to widget reordering across versions.
+
+**Typical wiring:**
+
+```
+                     ┌─→ Text Index Switch (positive variants) ─→ CLIP +
+String Selector Plus ┼─→ Text Index Switch (negative variants) ─→ CLIP -
+       ↓ index       └─→ Text Index Switch (motion descriptions) ─→ …
+       └──→ all switches share the same index, so all variants flip in lockstep
+
+       SaveImage filename_prefix:  base_%StringSelectorPlus.selected%_%date:yyyyMMdd%
+       → base_VariantName_20260501.mp4
+```
 
 ---
 
