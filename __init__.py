@@ -6,6 +6,8 @@ from .nodes.crop_to_ratio import MoBo_CropToRatio
 from .nodes.interactive_crop import MoBo_InteractiveCrop
 from .nodes.filename_builder import MoBo_FilenameBuilder
 from .nodes.string_selector_plus import MoBo_StringSelectorPlus
+from .nodes.keyword_lora_stacker import MoBo_KeywordLoraStacker
+from .nodes.apply_keyword_lora_stack import MoBo_ApplyKeywordLoraStack
 
 NODE_CLASS_MAPPINGS = {
     "LoadImageFromFolder": MoBo_FolderImageLoader,
@@ -16,6 +18,8 @@ NODE_CLASS_MAPPINGS = {
     "InteractiveCrop": MoBo_InteractiveCrop,
     "FilenameBuilder": MoBo_FilenameBuilder,
     "StringSelectorPlus": MoBo_StringSelectorPlus,
+    "KeywordLoraStacker": MoBo_KeywordLoraStacker,
+    "ApplyKeywordLoraStack": MoBo_ApplyKeywordLoraStack,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -27,6 +31,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "InteractiveCrop": "Interactive Crop",
     "FilenameBuilder": "Filename Builder",
     "StringSelectorPlus": "String Selector Plus",
+    "KeywordLoraStacker": "Keyword LoRA Stacker (High/Low)",
+    "ApplyKeywordLoraStack": "Apply Keyword LoRA Stack (High/Low)",
 }
 
 WEB_DIRECTORY = "./web/js"
