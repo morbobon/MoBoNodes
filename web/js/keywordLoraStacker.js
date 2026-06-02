@@ -288,10 +288,8 @@ class LoraEntryWidget {
         const lowQ = isLowQuality();
 
         roundRectPath(ctx, MARGIN - 4, y + 1, w - 2 * (MARGIN - 4), H - 2, lowQ ? 0 : 6);
+        // Plain widget background, same as rgthree's drawNodeWidget (theme-aware).
         ctx.fillStyle = col("WIDGET_BGCOLOR", "#222");
-        ctx.fill();
-        // Darken to rgthree's deep row backing (semi-transparent so it adapts to theme).
-        ctx.fillStyle = "rgba(0,0,0,0.32)";
         ctx.fill();
         if (!lowQ) { ctx.strokeStyle = col("WIDGET_OUTLINE_COLOR", "#333"); ctx.lineWidth = 1; ctx.stroke(); }
 
