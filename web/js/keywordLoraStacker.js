@@ -287,11 +287,19 @@ class LoraEntryWidget {
         const SEC = col("WIDGET_SECONDARY_TEXT_COLOR", "#999");
         const lowQ = isLowQuality();
 
-        roundRectPath(ctx, MARGIN - 4, y + 1, w - 2 * (MARGIN - 4), H - 2, lowQ ? 0 : 6);
+        const cardX = MARGIN - 4, cardY = y + 1, cardW = w - 2 * (MARGIN - 4), cardH = H - 2, rad = lowQ ? 0 : 6;
         // Plain widget background, same as rgthree's drawNodeWidget (theme-aware).
+        roundRectPath(ctx, cardX, cardY, cardW, cardH, rad);
         ctx.fillStyle = col("WIDGET_BGCOLOR", "#222");
         ctx.fill();
-        if (!lowQ) { ctx.strokeStyle = col("WIDGET_OUTLINE_COLOR", "#333"); ctx.lineWidth = 1; ctx.stroke(); }
+        if (!lowQ) {
+            // Re-trace inset by 0.5px so the 1px border renders crisp instead of a
+            // faint half-pixel-straddled line — matching rgthree's visible outline.
+            roundRectPath(ctx, cardX + 0.5, cardY + 0.5, cardW - 1, cardH - 1, rad);
+            ctx.strokeStyle = col("WIDGET_OUTLINE_COLOR", "#666");
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
 
         ctx.textBaseline = "middle";
         ctx.textAlign = "left";
