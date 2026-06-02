@@ -287,42 +287,28 @@ class LoraEntryWidget {
         const SEC = col("WIDGET_SECONDARY_TEXT_COLOR", "#999");
         const lowQ = isLowQuality();
 
-        const cardX = MARGIN - 4, cardY = y + 1, cardW = w - 2 * (MARGIN - 4), cardH = H - 2, rad = lowQ ? 0 : 6;
-        // Plain widget background, same as rgthree's drawNodeWidget (theme-aware).
-        roundRectPath(ctx, cardX, cardY, cardW, cardH, rad);
-        ctx.fillStyle = col("WIDGET_BGCOLOR", "#222");
-        ctx.fill();
-        if (!lowQ) {
-            // Re-trace inset by 0.5px so the 1px border renders crisp instead of a
-            // faint half-pixel-straddled line — matching rgthree's visible outline.
-            roundRectPath(ctx, cardX + 0.5, cardY + 0.5, cardW - 1, cardH - 1, rad);
-            ctx.strokeStyle = col("WIDGET_OUTLINE_COLOR", "#666");
-            ctx.lineWidth = 1;
-            ctx.stroke();
-        }
-
         ctx.textBaseline = "middle";
         ctx.textAlign = "left";
         ctx.font = `${col("NODE_TEXT_SIZE", 14)}px Arial`;
         ctx.globalAlpha = v.on ? 1 : 0.45;
 
-        const left = MARGIN + 2;
-        const right = w - MARGIN - 2;
+        const cardX = MARGIN - 4, cardW = w - 2 * (MARGIN - 4);
+        const inL = cardX + 6, inR = cardX + cardW - 6;
 
-        // Row 0: toggle + keyword
+        // Row 0: toggle + keyword — a header line (no card), like rgthree's "Toggle All".
         let ry = y + PAD_TOP;
-        const tglW = this.drawToggle(ctx, left, ry, ROW_H, v.on);
-        this.hit.toggle = [left, ry, tglW, ROW_H];
-        const kwx = left + tglW + 8;
+        const tglW = this.drawToggle(ctx, inL, ry, ROW_H, v.on);
+        this.hit.toggle = [inL, ry, tglW, ROW_H];
+        const kwx = inL + tglW + 8;
         ctx.fillStyle = v.keyword ? TEXT : SEC;
-        ctx.fillText(fitString(ctx, v.keyword || "keyword…  (blank = always)", right - kwx), kwx, ry + ROW_H / 2);
-        this.hit.keyword = [kwx, ry, right - kwx, ROW_H];
+        ctx.fillText(fitString(ctx, v.keyword || "keyword…  (blank = always)", inR - kwx), kwx, ry + ROW_H / 2);
+        this.hit.keyword = [kwx, ry, inR - kwx, ROW_H];
 
-        // Row 1/2: high/low
+        // Row 1/2: high/low — each in its own bordered card (an rgthree-style row).
         ry += ROW_H + GAP;
-        this.drawLoraLine(ctx, "H", "high", v.lora_high, v.strengthHigh, v._autoHigh, left, right, ry, TEXT, SEC);
+        this.drawLoraLine(ctx, "H", "high", v.lora_high, v.strengthHigh, v._autoHigh, cardX, cardW, ry, lowQ, TEXT, SEC);
         ry += ROW_H + GAP;
-        this.drawLoraLine(ctx, "L", "low", v.lora_low, v.strengthLow, v._autoLow, left, right, ry, TEXT, SEC);
+        this.drawLoraLine(ctx, "L", "low", v.lora_low, v.strengthLow, v._autoLow, cardX, cardW, ry, lowQ, TEXT, SEC);
 
         ctx.globalAlpha = 1;
     }
@@ -360,16 +346,29 @@ class LoraEntryWidget {
         return x0;
     }
 
-    drawLoraLine(ctx, tag, side, loraName, strength, auto, left, right, ry, TEXT, SEC) {
+    drawLoraLine(ctx, tag, side, loraName, strength, auto, cardX, cardW, ry, lowQ, TEXT, SEC) {
+        const rad = lowQ ? 0 : 5;
+        // Per-row bordered card (its own rgthree-style row).
+        roundRectPath(ctx, cardX, ry, cardW, ROW_H, rad);
+        ctx.fillStyle = col("WIDGET_BGCOLOR", "#222");
+        ctx.fill();
+        if (!lowQ) {
+            // Inset 0.5px so the 1px border renders crisp, not a faint half-pixel line.
+            roundRectPath(ctx, cardX + 0.5, ry + 0.5, cardW - 1, ROW_H - 1, rad);
+            ctx.strokeStyle = col("WIDGET_OUTLINE_COLOR", "#666");
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
         const cy = ry + ROW_H / 2;
+        const inL = cardX + 6, inR = cardX + cardW - 6;
         ctx.fillStyle = SEC;
-        ctx.fillText(tag, left, cy);
+        ctx.fillText(tag, inL, cy);
         const dk = side === "high" ? "hDec" : "lDec";
         const vk = side === "high" ? "hVal" : "lVal";
         const ik = side === "high" ? "hInc" : "lInc";
         const nameKey = side === "high" ? "lora_high" : "lora_low";
-        const strLeft = this.drawStrength(ctx, right, ry, ROW_H, strength, dk, vk, ik, SEC, TEXT);
-        const nameX = left + 14;
+        const strLeft = this.drawStrength(ctx, inR, ry, ROW_H, strength, dk, vk, ik, SEC, TEXT);
+        const nameX = inL + 14;
         const nameW = strLeft - 8 - nameX;
         const isSet = loraName && loraName !== "None";
         ctx.fillStyle = !isSet ? SEC : (auto ? "#7fb2e0" : TEXT);
