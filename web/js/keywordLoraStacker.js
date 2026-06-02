@@ -273,7 +273,12 @@ class LoraEntryWidget {
         };
     }
 
-    draw(ctx, node, w, y, H) {
+    draw(ctx, node, w, y, _Hpassed) {
+        // LiteGraph passes a fixed single-row height here even though layout
+        // advances by our computeSize, so compute our real height ourselves —
+        // otherwise the card only covers the first row and the H/L lines render
+        // on the bare node background.
+        const H = PAD_TOP + 3 * ROW_H + 2 * GAP + PAD_BOT;
         this._y0 = y; this._y1 = y + H;
         const v = this.value;
         const TEXT = col("WIDGET_TEXT_COLOR", "#e0e0e0");
