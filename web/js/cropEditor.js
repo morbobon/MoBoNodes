@@ -1222,8 +1222,15 @@ export function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node,
         function applyResize(mode, dx, dy) {
             const s = dragCropStart;
             if (mode === "move") {
-                crop.x = Math.max(0, Math.min(s.x + dx, imgW - s.w));
-                crop.y = Math.max(0, Math.min(s.y + dy, imgH - s.h));
+                if (constrainToImage) {
+                    crop.x = Math.max(0, Math.min(s.x + dx, imgW - s.w));
+                    crop.y = Math.max(0, Math.min(s.y + dy, imgH - s.h));
+                } else {
+                    // Unconstrained: rect can move past the image edges; the
+                    // exterior will show as Pad fill on save.
+                    crop.x = s.x + dx;
+                    crop.y = s.y + dy;
+                }
                 crop.w = s.w; crop.h = s.h;
             } else if (lockedRatio !== null) {
                 applyRatioResize(mode, dx, dy, s);
@@ -1231,14 +1238,20 @@ export function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node,
                 applyFreeResize(mode, dx, dy, s);
                 if (crop.w < 0) { crop.x += crop.w; crop.w = -crop.w; }
                 if (crop.h < 0) { crop.y += crop.h; crop.h = -crop.h; }
-                clampCrop(crop, imgW, imgH);
+                if (constrainToImage) clampCrop(crop, imgW, imgH);
             }
         }
 
         function applyFreeResize(mode, dx, dy, s) {
             if (mode === "draw") {
-                const ix = Math.max(0, Math.min(dragStart[0]+dx, imgW));
-                const iy = Math.max(0, Math.min(dragStart[1]+dy, imgH));
+                // Unconstrained: allow the new rect to be drawn outside the
+                // image. Constrained: clamp the diagonal endpoint to the image.
+                const ix = constrainToImage
+                    ? Math.max(0, Math.min(dragStart[0]+dx, imgW))
+                    : (dragStart[0] + dx);
+                const iy = constrainToImage
+                    ? Math.max(0, Math.min(dragStart[1]+dy, imgH))
+                    : (dragStart[1] + dy);
                 crop.x = Math.min(dragStart[0], ix); crop.y = Math.min(dragStart[1], iy);
                 crop.w = Math.abs(ix-dragStart[0]); crop.h = Math.abs(iy-dragStart[1]);
             } else if (mode==="resize-br") { crop.w=s.w+dx; crop.h=s.h+dy; }
@@ -1260,10 +1273,13 @@ export function openCropEditor(imgUrl, xWidget, yWidget, wWidget, hWidget, node,
             else if(mode==="resize-tr"){ nw=Math.max(20,s.w+dx); nh=nw/R; nx=s.x; ny=s.y+s.h-nh; }
             else if(mode==="resize-tl"){ nw=Math.max(20,s.w-dx); nh=nw/R; nx=s.x+s.w-nw; ny=s.y+s.h-nh; }
             else return;
-            if (nx<0)        { nw+=nx; nh=nw/R; nx=0; if(mode==="resize-tl"||mode==="resize-tr") ny=s.y+s.h-nh; }
-            if (ny<0)        { nh+=ny; nw=nh*R; ny=0; if(mode==="resize-tl"||mode==="resize-bl") nx=s.x+s.w-nw; }
-            if (nx+nw>imgW)  { nw=imgW-nx; nh=nw/R; if(mode==="resize-tl"||mode==="resize-tr") ny=s.y+s.h-nh; }
-            if (ny+nh>imgH)  { nh=imgH-ny; nw=nh*R; if(mode==="resize-tl"||mode==="resize-bl") nx=s.x+s.w-nw; }
+            if (constrainToImage) {
+                // Push the rect back inside the image bounds, preserving ratio.
+                if (nx<0)        { nw+=nx; nh=nw/R; nx=0; if(mode==="resize-tl"||mode==="resize-tr") ny=s.y+s.h-nh; }
+                if (ny<0)        { nh+=ny; nw=nh*R; ny=0; if(mode==="resize-tl"||mode==="resize-bl") nx=s.x+s.w-nw; }
+                if (nx+nw>imgW)  { nw=imgW-nx; nh=nw/R; if(mode==="resize-tl"||mode==="resize-tr") ny=s.y+s.h-nh; }
+                if (ny+nh>imgH)  { nh=imgH-ny; nw=nh*R; if(mode==="resize-tl"||mode==="resize-bl") nx=s.x+s.w-nw; }
+            }
             nw=Math.max(20,nw); nh=Math.max(20,nw/R);
             crop.x=nx; crop.y=ny; crop.w=nw; crop.h=nh;
         }
