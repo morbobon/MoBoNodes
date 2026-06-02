@@ -176,16 +176,18 @@ function showLoraChooser(event, current, onChoose) {
     const list = LORA_LIST || ["None"];
     const menu = document.createElement("div");
     _activeChooser = menu;
+    // Theme-aware: use ComfyUI CSS variables with dark fallbacks.
     menu.style.cssText = `position:fixed; z-index:10000; min-width:320px; max-width:520px;
-        background:#1c1c2b; border:1px solid #555; border-radius:6px;
+        background:var(--comfy-menu-bg,#1c1c2b); border:1px solid var(--border-color,#555); border-radius:6px;
         box-shadow:0 6px 24px rgba(0,0,0,.5); padding:4px;
-        font-family:sans-serif; font-size:12px; color:#ddd;`;
+        font-family:sans-serif; font-size:12px; color:var(--fg-color,#ddd);`;
 
     const input = document.createElement("input");
     input.type = "text";
     input.placeholder = "Type to filter…";
     input.style.cssText = `width:100%; box-sizing:border-box; height:24px; margin-bottom:4px;
-        background:#0f0f1e; color:#fff; border:1px solid #666; border-radius:4px; padding:0 6px;`;
+        background:var(--comfy-input-bg,#0f0f1e); color:var(--input-text,#fff);
+        border:1px solid var(--border-color,#666); border-radius:4px; padding:0 6px;`;
     menu.appendChild(input);
 
     const listEl = document.createElement("div");
@@ -320,16 +322,19 @@ class LoraEntryWidget {
     }
 
     drawToggle(ctx, x, y, h, on) {
-        // rgthree-style pill, sized to leave a little vertical margin in the row
-        // so it sits cleanly against the dark backing, centered on the midline.
-        const r = h * 0.30, bgW = h * 1.4;
+        // Faithful to rgthree's drawTogglePart: a translucent-white track (so it
+        // adapts to any theme) with a muted knob (#89B on / #888 off), knob at
+        // +height when on / +0.5·height when off.
+        const th = Math.round(h * 0.72);   // toggle height, leaving row margin
+        const bgW = th * 1.5;
+        const r = th * 0.36;
         const cy = y + h / 2;
-        roundRectPath(ctx, x, cy - r, bgW, 2 * r, r);
-        ctx.fillStyle = on ? "#3a8ee6" : col("WIDGET_OUTLINE_COLOR", "#555");
+        roundRectPath(ctx, x, cy - th / 2, bgW, th, th / 2);
+        ctx.fillStyle = "rgba(255,255,255,0.45)";
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(on ? x + bgW - r : x + r, cy, r * 0.72, 0, Math.PI * 2);
-        ctx.fillStyle = "#fff";
+        ctx.arc(on ? x + th : x + th * 0.5, cy, r, 0, Math.PI * 2);
+        ctx.fillStyle = on ? "#89B" : "#888";
         ctx.fill();
         return bgW;
     }
