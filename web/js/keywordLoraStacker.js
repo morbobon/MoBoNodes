@@ -312,16 +312,15 @@ class LoraEntryWidget {
     }
 
     drawToggle(ctx, x, y, h, on) {
-        // Slightly smaller pill, optically centered on the row's text baseline
-        // (canvas "middle" baseline sits a touch low, so nudge the pill +1px).
-        const r = h * 0.26, bgW = h * 1.3;
-        const cy = Math.round(y + h / 2) + 1;
-        const top = Math.round(cy - r);
-        roundRectPath(ctx, x, top, bgW, 2 * r, r);
+        // rgthree-style pill (drawTogglePart: bg width ~1.5h, radius ~0.36h),
+        // centered on the row's vertical midline.
+        const r = h * 0.34, bgW = h * 1.5;
+        const cy = y + h / 2;
+        roundRectPath(ctx, x, cy - r, bgW, 2 * r, r);
         ctx.fillStyle = on ? "#3a8ee6" : col("WIDGET_OUTLINE_COLOR", "#555");
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(on ? x + bgW - r : x + r, cy, r * 0.78, 0, Math.PI * 2);
+        ctx.arc(on ? x + bgW - r : x + r, cy, r * 0.72, 0, Math.PI * 2);
         ctx.fillStyle = "#fff";
         ctx.fill();
         return bgW;
@@ -364,48 +363,57 @@ class LoraEntryWidget {
         const v = Math.round((Number(this.value[key] || 0) + dir * 0.05) * 100) / 100;
         this.value[key] = Math.max(-100, Math.min(100, v));
     }
-    promptValue(key, node) {
+    promptValue(key, node, event) {
         app.canvas.prompt("Strength", (Number(this.value[key]) || 0).toFixed(2), (val) => {
             const n = parseFloat(val);
             if (!isNaN(n)) { this.value[key] = Math.max(-100, Math.min(100, n)); node.setDirtyCanvas(true, true); }
-        }, null);
+        }, event);
     }
     openChooser(slot, node, event) {
+        const slotAutoKey = slot === "lora_high" ? "_autoHigh" : "_autoLow";
+        const other = slot === "lora_high" ? "lora_low" : "lora_high";
+        const otherAutoKey = other === "lora_low" ? "_autoLow" : "_autoHigh";
         showLoraChooser(event, this.value[slot], (val) => {
-            this.value[slot] = val;
-            // A manual pick on this slot clears its own auto flag.
-            if (slot === "lora_high") this.value._autoHigh = false; else this.value._autoLow = false;
+            // Capture the edited slot's state BEFORE applying the pick.
+            const oldVal = this.value[slot];
+            const editedWasWhite = oldVal && oldVal !== "None" && !this.value[slotAutoKey];
 
-            const other = slot === "lora_high" ? "lora_low" : "lora_high";
-            const otherAutoKey = other === "lora_low" ? "_autoLow" : "_autoHigh";
+            // Apply the pick; this slot is now a manual (white) value.
+            this.value[slot] = val;
+            this.value[slotAutoKey] = false;
+
             const otherEmpty = !this.value[other] || this.value[other] === "None";
-            // Re-match the counterpart if it's empty OR was itself auto-filled
-            // (so it tracks the new selection instead of keeping a stale value).
-            if (otherEmpty || this.value[otherAutoKey]) {
-                if (val && val !== "None") {
+            const otherAuto = !!this.value[otherAutoKey];
+            // "Update both" unless we're editing a slot that was empty/blue AND
+            // the counterpart is a manual (white) value — then protect it.
+            const allowOverwrite = otherEmpty || otherAuto || editedWasWhite;
+
+            if (val && val !== "None") {
+                if (allowOverwrite) {
                     const cp = findCounterpart(val, LORA_LIST);
                     if (cp) {
                         this.value[other] = cp;
                         this.value[otherAutoKey] = true;
-                    } else if (this.value[otherAutoKey]) {
-                        // Previously auto, but nothing matches the new pick — drop it.
+                    } else if (otherAuto) {
+                        // Stale auto value with no match for the new pick — drop it.
                         this.value[other] = "None";
                         this.value[otherAutoKey] = false;
                     }
-                } else if (this.value[otherAutoKey]) {
-                    // This slot cleared to None and the other was auto from it — clear it too.
-                    this.value[other] = "None";
-                    this.value[otherAutoKey] = false;
+                    // (empty stays empty; a forced white counterpart with no match is left as-is)
                 }
+            } else if (otherAuto) {
+                // Cleared this slot to None and the other was auto from it — clear too.
+                this.value[other] = "None";
+                this.value[otherAutoKey] = false;
             }
             node.setDirtyCanvas(true, true);
         });
     }
-    editKeyword(node) {
+    editKeyword(node, event) {
         app.canvas.prompt("Keyword(s)  (, ; or newline = OR; blank = always)", this.value.keyword || "", (val) => {
             this.value.keyword = (val ?? "").toString();
             node.setDirtyCanvas(true, true);
-        }, null);
+        }, event);
     }
 
     mouse(event, pos, node) {
@@ -419,7 +427,7 @@ class LoraEntryWidget {
             if (inside(pos, this.hit.lInc)) { this.step("strengthLow", 1); node.setDirtyCanvas(true, true); return true; }
             if (inside(pos, this.hit.lora_high)) { this.openChooser("lora_high", node, event); return true; }
             if (inside(pos, this.hit.lora_low)) { this.openChooser("lora_low", node, event); return true; }
-            if (inside(pos, this.hit.keyword)) { this.editKeyword(node); return true; }
+            if (inside(pos, this.hit.keyword)) { this.editKeyword(node, event); return true; }
             if (inside(pos, this.hit.hVal)) { this._drag = { key: "strengthHigh", x: pos[0], v: Number(this.value.strengthHigh) || 0, moved: false }; return true; }
             if (inside(pos, this.hit.lVal)) { this._drag = { key: "strengthLow", x: pos[0], v: Number(this.value.strengthLow) || 0, moved: false }; return true; }
             return false;
@@ -437,7 +445,7 @@ class LoraEntryWidget {
         if (t === "pointerup" || t === "mouseup") {
             if (this._drag) {
                 const d = this._drag; this._drag = null;
-                if (!d.moved) this.promptValue(d.key, node);
+                if (!d.moved) this.promptValue(d.key, node, event);
                 return true;
             }
             return false;
@@ -553,6 +561,8 @@ app.registerExtension({
             node.onSerialize = function (o) {
                 origSerialize?.apply(this, arguments);
                 o.properties = o.properties || {};
+                // Note: auto-match (blue) flags are intentionally NOT persisted —
+                // on reload, restored LoRAs are treated as committed/manual values.
                 o.properties.moboLoraRows = loraWidgets().map((w) => w.serializeValue());
                 o.properties.moboPromptExpanded = promptExpanded;
                 o.properties.moboNamed = { prompt: promptW?.value, stack_keyword: stackKwW?.value };
@@ -574,25 +584,33 @@ app.registerExtension({
             return r;
         };
 
-        // Per-row right-click context menu (find row via drawn y-bounds)
-        const origMenu = nodeType.prototype.getExtraMenuOptions;
-        nodeType.prototype.getExtraMenuOptions = function (canvas, options) {
-            const rr = origMenu?.apply(this, arguments);
-            const node = this;
-            const gm = canvas?.graph_mouse || app.canvas?.graph_mouse;
-            const localY = gm ? gm[1] - node.pos[1] : null;
-            const loras = (node.widgets || []).filter((w) => w.type === WTYPE);
-            const target = (localY != null) ? loras.find((w) => localY >= w._y0 && localY <= w._y1) : null;
-            if (target) {
-                options.unshift(
-                    { content: (target.value.on ? "Disable" : "Enable") + " this LoRA", callback: () => { target.value.on = !target.value.on; node.setDirtyCanvas(true, true); } },
-                    { content: "⬆ Move up", callback: () => node._moboMoveLora(target, -1) },
-                    { content: "⬇ Move down", callback: () => node._moboMoveLora(target, 1) },
-                    { content: "🗑 Remove this LoRA", callback: () => node._moboRemoveLora(target) },
+        // Dedicated per-row context menu (rgthree-style): hook getSlotInPosition
+        // so a right-click over a LoRA row reports a fake slot, then return that
+        // row's own menu from getSlotMenuOptions (a standalone little menu, not
+        // items appended to the node's menu).
+        const origSlotInPos = nodeType.prototype.getSlotInPosition;
+        nodeType.prototype.getSlotInPosition = function (cx, cy) {
+            const localY = cy - this.pos[1];
+            const w = (this.widgets || []).find((x) => x.type === WTYPE && localY >= x._y0 && localY <= x._y1);
+            if (w) return { widget: w, output: { type: "LoRA" } };
+            return origSlotInPos ? origSlotInPos.apply(this, arguments) : undefined;
+        };
+        const origSlotMenu = nodeType.prototype.getSlotMenuOptions;
+        nodeType.prototype.getSlotMenuOptions = function (slot) {
+            const w = slot?.widget;
+            if (w && w.type === WTYPE) {
+                const node = this;
+                return [
+                    { content: "ℹ️ Trigger words (soon)", disabled: true },
+                    { content: w.value.on ? "Disable" : "Enable", callback: () => { w.value.on = !w.value.on; node.setDirtyCanvas(true, true); } },
                     null,
-                );
+                    { content: "⬆️ Move Up", callback: () => node._moboMoveLora(w, -1) },
+                    { content: "⬇️ Move Down", callback: () => node._moboMoveLora(w, 1) },
+                    null,
+                    { content: "🗑️ Remove", callback: () => node._moboRemoveLora(w) },
+                ];
             }
-            return rr;
+            return origSlotMenu ? origSlotMenu.apply(this, arguments) : undefined;
         };
     },
 });
