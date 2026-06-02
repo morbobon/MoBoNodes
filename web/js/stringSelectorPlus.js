@@ -83,7 +83,10 @@ app.registerExtension({
                 if (expanded) showWidget(stringsW);
                 else          hideWidget(stringsW);
                 collapseBtn.name = expanded ? "▼ Entries (edit)" : "▶ Entries (edit)";
-                node.setSize?.(node.computeSize());
+                // Resize ONLY to grow if the user is currently smaller than the
+                // computed minimum — never shrink past their manual resize.
+                const minH = node.computeSize()[1];
+                if ((node.size?.[1] || 0) < minH) node.setSize?.([node.size[0], minH]);
                 app.graph.setDirtyCanvas(true);
             }
 
@@ -99,30 +102,27 @@ app.registerExtension({
             }
 
             // --- List view (always visible) -----------------------------------
+            // listEl fills the wrapper ComfyUI gives it; the wrapper height is
+            // computed dynamically from the node's overall height so the list
+            // grows when the user resizes the node taller.
             const listEl = document.createElement("div");
             listEl.className = "mobo-string-list";
             listEl.style.cssText = `
                 font-family: monospace; font-size: 12px;
                 padding: 3px;
-                max-height: 220px; overflow-y: auto;
                 background: #1a1a2e;
                 border: 1px solid #444;
                 border-radius: 4px;
                 box-sizing: border-box;
                 width: 100%;
+                height: 100%;
+                overflow-y: auto;
             `;
-            const LIST_MAX_H = 220;
+            const LIST_H = 160;
             const listWidget = node.addDOMWidget("selected_list", "div", listEl, {
                 serialize: false,
                 hideOnZoom: false,
-                // Critical: tell ComfyUI the actual rendered height of this
-                // widget. Without it, ComfyUI reserves a fallback area below
-                // the visible content, which acts as an invisible
-                // click-blocker on top of the canvas under the node.
-                getHeight: () => {
-                    const visible = Math.min(LIST_MAX_H, listEl.scrollHeight || 28);
-                    return Math.max(28, visible);
-                },
+                getHeight: () => LIST_H,
             });
 
             function refresh() {
@@ -174,11 +174,6 @@ app.registerExtension({
                     listEl.appendChild(item);
                 });
 
-                // The DOM widget's reported height changes when entries are
-                // added/removed — ask the node to re-measure so its claimed
-                // area matches what's visible (otherwise we re-create the
-                // invisible click-blocker problem on the next refresh).
-                node.setSize?.(node.computeSize());
             }
 
             // Hook callbacks for change detection.
