@@ -208,6 +208,7 @@ function showLoraChooser(event, current, onChoose) {
         const f = filter.toLowerCase();
         listEl.innerHTML = "";
         items = [];
+        let curIdx = 0;
         for (const name of ["None", ...list.filter((n) => n !== "None")]) {
             if (f && !name.toLowerCase().includes(f)) continue;
             const el = document.createElement("div");
@@ -216,12 +217,14 @@ function showLoraChooser(event, current, onChoose) {
             el.style.cssText = "padding:3px 6px; cursor:pointer; white-space:nowrap; border-radius:3px;" +
                 (name === current ? "outline:1px solid #3a8ee6;" : "");
             const idx = items.length;
+            if (name === current) curIdx = idx;
             el.addEventListener("mouseenter", () => setActive(idx));
             el.addEventListener("click", () => choose(name));
             listEl.appendChild(el);
             items.push({ name, el });
         }
-        setActive(0);
+        // Open with the current selection highlighted and scrolled into view.
+        setActive(curIdx);
     }
     input.addEventListener("input", () => build(input.value));
     input.addEventListener("keydown", (e) => {
@@ -309,8 +312,12 @@ class LoraEntryWidget {
     }
 
     drawToggle(ctx, x, y, h, on) {
-        const r = h * 0.30, bgW = h * 1.4, cy = y + h / 2;
-        roundRectPath(ctx, x, cy - r, bgW, 2 * r, r);
+        // Slightly smaller pill, optically centered on the row's text baseline
+        // (canvas "middle" baseline sits a touch low, so nudge the pill +1px).
+        const r = h * 0.26, bgW = h * 1.3;
+        const cy = Math.round(y + h / 2) + 1;
+        const top = Math.round(cy - r);
+        roundRectPath(ctx, x, top, bgW, 2 * r, r);
         ctx.fillStyle = on ? "#3a8ee6" : col("WIDGET_OUTLINE_COLOR", "#555");
         ctx.fill();
         ctx.beginPath();
@@ -366,15 +373,29 @@ class LoraEntryWidget {
     openChooser(slot, node, event) {
         showLoraChooser(event, this.value[slot], (val) => {
             this.value[slot] = val;
+            // A manual pick on this slot clears its own auto flag.
             if (slot === "lora_high") this.value._autoHigh = false; else this.value._autoLow = false;
-            if (val && val !== "None") {
-                const other = slot === "lora_high" ? "lora_low" : "lora_high";
-                if (!this.value[other] || this.value[other] === "None") {
+
+            const other = slot === "lora_high" ? "lora_low" : "lora_high";
+            const otherAutoKey = other === "lora_low" ? "_autoLow" : "_autoHigh";
+            const otherEmpty = !this.value[other] || this.value[other] === "None";
+            // Re-match the counterpart if it's empty OR was itself auto-filled
+            // (so it tracks the new selection instead of keeping a stale value).
+            if (otherEmpty || this.value[otherAutoKey]) {
+                if (val && val !== "None") {
                     const cp = findCounterpart(val, LORA_LIST);
                     if (cp) {
                         this.value[other] = cp;
-                        if (other === "lora_low") this.value._autoLow = true; else this.value._autoHigh = true;
+                        this.value[otherAutoKey] = true;
+                    } else if (this.value[otherAutoKey]) {
+                        // Previously auto, but nothing matches the new pick — drop it.
+                        this.value[other] = "None";
+                        this.value[otherAutoKey] = false;
                     }
+                } else if (this.value[otherAutoKey]) {
+                    // This slot cleared to None and the other was auto from it — clear it too.
+                    this.value[other] = "None";
+                    this.value[otherAutoKey] = false;
                 }
             }
             node.setDirtyCanvas(true, true);
