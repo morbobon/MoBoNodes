@@ -398,7 +398,9 @@ class LoraEntryWidget {
 
             if (val && val !== "None") {
                 if (allowOverwrite) {
-                    const cp = findCounterpart(val, LORA_LIST);
+                    let cp = null;
+                    try { cp = findCounterpart(val, LORA_LIST); }
+                    catch (e) { console.warn("[MoBo KeywordLoraStacker] auto-match failed", e); }
                     if (cp) {
                         this.value[other] = cp;
                         this.value[otherAutoKey] = true;
@@ -582,8 +584,10 @@ app.registerExtension({
                 // Restore static widget values by name (positional restore is unreliable here).
                 const named = info?.properties?.moboNamed;
                 if (named) {
-                    if (promptW && named.prompt !== undefined) promptW.value = named.prompt;
-                    if (stackKwW && named.stack_keyword !== undefined) stackKwW.value = named.stack_keyword;
+                    // Use != null so we never assign a null (which later breaks
+                    // string ops like prompt.replace during queueing).
+                    if (promptW && named.prompt != null) promptW.value = named.prompt;
+                    if (stackKwW && named.stack_keyword != null) stackKwW.value = named.stack_keyword;
                 }
                 if (info?.properties?.moboPromptExpanded === false) setPromptExpanded(false);
             };
