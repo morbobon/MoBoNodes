@@ -72,6 +72,7 @@ A feature-rich loader with everything the basic loader has **plus** aspect/resol
   - Single-line `outfile_template` and `outfolder_template` — `{variable}` templates resolved client-side into hidden `outfile` / `outfolder` widgets.
   - Reference the resolved values in SaveImage's `filename_prefix` as `%LoadImagePlus.outfile%` or `%LoadImagePlus.outfolder%`.
   - Supported variables: `{subfolderid}`, `{fileid}`, `{filename}`, `{aspect}`, `{width}`, `{height}`, `{res}`, `{workflowname}`, `{date:FORMAT}` (FORMAT uses `yyyy yy MM M dd d hh h mm m ss s`).
+  - **Truncation:** Append `-N` to any variable to limit its length to N characters. E.g., `{filename-20}`, `{workflowname-15}`. Useful when chaining nodes with long filenames.
   - Any `%…%` tokens pass through for SaveImage to resolve.
   - **Default templates** (pre-filled when you add the node):
     - `outfile_template`: `{subfolderid}-{fileid}{workflowname}_{date:hhMM}-` → e.g. `dogs-puppies-rni52my_workflow_1430-`

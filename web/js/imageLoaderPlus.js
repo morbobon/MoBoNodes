@@ -273,8 +273,15 @@ app.registerExtension({
             function resolveLocalTemplate(template, vars) {
                 if (typeof template !== "string" || !template) return "";
                 const now = new Date();
+                let out = template;
                 // {date:FORMAT} → formatted current datetime
-                let out = template.replace(/\{date:([^}]+)\}/g, (_, fmt) => formatDate(now, fmt));
+                out = out.replace(/\{date:([^}]+)\}/g, (_, fmt) => formatDate(now, fmt));
+                // {variable-N} → vars[variable] truncated to N characters
+                out = out.replace(/\{(\w+)-(\d+)\}/g, (_, varName, length) => {
+                    const val = vars[varName] === undefined || vars[varName] === null ? "" : vars[varName];
+                    const len = parseInt(length, 10);
+                    return val.substring(0, len);
+                });
                 // {var} → vars[var] (empty string for unknown)
                 out = out.replace(/\{(\w+)\}/g, (_, k) =>
                     vars[k] === undefined || vars[k] === null ? "" : vars[k]);

@@ -134,7 +134,7 @@ class MoBo_ImageLoaderPlus:
                     "tooltip": "5-char base36 hash of the filename (mirrors the fileid output as a widget so %LoadImagePlus.fileid% works in SaveImage filename_prefix)."}),
                 "outfile_template": ("STRING", {
                     "default": "{subfolderid}-{fileid}{workflowname}_{date:hhMM}-",
-                    "tooltip": "Template for the filename. Variables: {subfolderid}, {fileid}, {filename}, {aspect}, {width}, {height}, {res}, {workflowname}, {date:FORMAT} (yyyy yy MM M dd d hh h mm m ss s). Resolved client-side. The RESOLVED value is in the hidden 'outfile' widget — reference via %LoadImagePlus.outfile% in SaveImage filename_prefix. Any %Node.widget% tokens still pass through for SaveImage to resolve.",
+                    "tooltip": "Template for the filename. Variables: {subfolderid}, {fileid}, {filename}, {aspect}, {width}, {height}, {res}, {workflowname}, {date:FORMAT} (yyyy yy MM M dd d hh h mm m ss s). Append -N to any variable to truncate to N chars: {filename-20}, {workflowname-15}. Resolved client-side. The RESOLVED value is in the hidden 'outfile' widget — reference via %LoadImagePlus.outfile% in SaveImage filename_prefix. Any %Node.widget% tokens still pass through for SaveImage to resolve.",
                 }),
                 "outfolder_template": ("STRING", {
                     "default": "{date:yyyy_MM_dd}",
