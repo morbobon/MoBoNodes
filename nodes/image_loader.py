@@ -1,4 +1,5 @@
 import os
+import fnmatch
 import hashlib
 import numpy as np
 import torch
@@ -28,8 +29,14 @@ def get_subfolders(input_dir):
     return ["."] + all_paths
 
 
-def get_images_in_folder(input_dir, subfolder):
-    """Get list of image files in a specific subfolder of the input directory."""
+def get_images_in_folder(input_dir, subfolder, sort=None, order="asc", filter_pattern=None):
+    """Get list of image files in a specific subfolder of the input directory.
+
+    sort: None (legacy alphabetical via sorted()), "datetime", or "filename".
+    order: "asc" or "desc". Ignored when sort is None.
+    filter_pattern: optional glob-style wildcard (e.g. "*ship*"), matched
+        case-insensitively against the filename via fnmatch.
+    """
     if subfolder == ".":
         target = input_dir
     else:
@@ -43,7 +50,20 @@ def get_images_in_folder(input_dir, subfolder):
         return []
 
     files = [f for f in os.listdir(target) if os.path.isfile(os.path.join(target, f))]
-    return sorted(folder_paths.filter_files_content_types(files, ["image"]))
+    files = folder_paths.filter_files_content_types(files, ["image"])
+
+    if filter_pattern:
+        pattern = filter_pattern.lower()
+        files = [f for f in files if fnmatch.fnmatch(f.lower(), pattern)]
+
+    if sort == "datetime":
+        files.sort(key=lambda f: os.path.getmtime(os.path.join(target, f)), reverse=(order == "desc"))
+    elif sort == "filename":
+        files.sort(key=lambda f: f.lower(), reverse=(order == "desc"))
+    else:
+        files = sorted(files)
+
+    return files
 
 
 # --- API Routes ---
@@ -77,8 +97,11 @@ async def list_subfolders(request):
 async def list_images(request):
     subfolder = request.rel_url.query.get("subfolder", ".")
     source_type = request.rel_url.query.get("type", "input")
+    sort = request.rel_url.query.get("sort")
+    order = request.rel_url.query.get("order", "asc")
+    filter_pattern = request.rel_url.query.get("filter") or None
     base = _dir_for_type(source_type)
-    images = get_images_in_folder(base, subfolder)
+    images = get_images_in_folder(base, subfolder, sort=sort, order=order, filter_pattern=filter_pattern)
     return web.json_response(images)
 
 

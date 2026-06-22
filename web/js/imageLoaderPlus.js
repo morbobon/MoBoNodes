@@ -698,7 +698,12 @@ app.registerExtension({
             const refreshImages = async (subfolderValue, selectFilename = null) => {
                 try {
                     const realSub = realPathFor(subfolderValue) ?? ".";
-                    const resp = await fetch(`/mobo_nodes/image_loader/images?subfolder=${encodeURIComponent(realSub)}&type=${sourceType()}`);
+                    const sortParam = (sortW?.value === "Filename") ? "filename" : "datetime";
+                    const orderParam = (orderW?.value === "Ascending") ? "asc" : "desc";
+                    const filterParam = filterW?.value ? filterW.value.trim() : "";
+                    let url = `/mobo_nodes/image_loader/images?subfolder=${encodeURIComponent(realSub)}&type=${sourceType()}&sort=${sortParam}&order=${orderParam}`;
+                    if (filterParam) url += `&filter=${encodeURIComponent(filterParam)}`;
+                    const resp = await fetch(url);
                     const images = await resp.json();
                     const list = images.length > 0 ? images : ["none"];
                     Object.defineProperty(imageWidget.options, "values", {
@@ -850,6 +855,71 @@ app.registerExtension({
             }
             shrinkTextarea(outfileTplW, 2);
             shrinkTextarea(outfolderTplW, 2);
+
+            // --- Section toggle (collapsible Sort & Filter) -------------------
+            // UI-only state (mirrors the "After generate" pattern) — not sent
+            // to Python; only controls which files populate the `image` dropdown.
+
+            node._moboSortFilterExpanded = false;
+
+            function setSortFilterExpanded(expanded) {
+                node._moboSortFilterExpanded = expanded;
+                node.properties = node.properties || {};
+                node.properties.sortFilterExpanded = expanded;
+                if (expanded) {
+                    showWidget(sortW); showWidget(orderW); showWidget(filterW);
+                    sortFilterToggle.name = "▼ Sort & Filter";
+                } else {
+                    hideWidget(sortW); hideWidget(orderW); hideWidget(filterW);
+                    sortFilterToggle.name = "▶ Sort & Filter";
+                }
+                applyHeight();
+                app.graph.setDirtyCanvas(true);
+            }
+
+            const sortFilterToggle = node.addWidget("button", "▶ Sort & Filter", null, () => {
+                setSortFilterExpanded(!node._moboSortFilterExpanded);
+            });
+
+            const sortW = node.addWidget(
+                "combo",
+                "Sort by",
+                "Date-time",
+                (value) => {
+                    node.properties = node.properties || {};
+                    node.properties.sortBy = value;
+                    refreshImages(subfolderWidget.value, imageWidget.value).catch(() => {});
+                },
+                { values: ["Date-time", "Filename"] }
+            );
+            sortW.serialize = false;
+
+            const orderW = node.addWidget(
+                "combo",
+                "Order",
+                "Descending",
+                (value) => {
+                    node.properties = node.properties || {};
+                    node.properties.sortOrder = value;
+                    refreshImages(subfolderWidget.value, imageWidget.value).catch(() => {});
+                },
+                { values: ["Descending", "Ascending"] }
+            );
+            orderW.serialize = false;
+
+            const filterW = node.addWidget(
+                "text",
+                "Filter (*wildcard*)",
+                "",
+                (value) => {
+                    node.properties = node.properties || {};
+                    node.properties.filterPattern = value;
+                    refreshImages(subfolderWidget.value, imageWidget.value).catch(() => {});
+                }
+            );
+            filterW.serialize = false;
+
+            hideWidget(sortW); hideWidget(orderW); hideWidget(filterW);
 
             // --- Show Preview toggle (placed AFTER the Output Resolution section, right above the preview) ---
 
@@ -1131,6 +1201,12 @@ app.registerExtension({
                 if (info.properties?.controlAfterGenerate) {
                     controlW.value = info.properties.controlAfterGenerate;
                 }
+                // Restore Sort & Filter state — same reasoning as above:
+                // these widgets are UI-only, created before node.properties
+                // is populated from the saved workflow.
+                if (info.properties?.sortBy) sortW.value = info.properties.sortBy;
+                if (info.properties?.sortOrder) orderW.value = info.properties.sortOrder;
+                if (typeof info.properties?.filterPattern === "string") filterW.value = info.properties.filterPattern;
                 // Restore source type (default: input)
                 const savedSource = (info.properties?.sourceType === "output") ? "output" : "input";
                 setSourceType(savedSource);
@@ -1153,6 +1229,7 @@ app.registerExtension({
                         await refreshImages(subfolderWidget.value, savedImage);
                         if (info.properties?.resExpanded) setSectionExpanded(true);
                         if (info.properties?.outNameExpanded) setOutNameExpanded(true);
+                        if (info.properties?.sortFilterExpanded) setSortFilterExpanded(true);
                     } catch (e) {
                         console.error("MoBo ImageLoaderPlus: onConfigure async failed", e);
                     }

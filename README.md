@@ -77,6 +77,12 @@ A feature-rich loader with everything the basic loader has **plus** aspect/resol
   - **Default templates** (pre-filled when you add the node):
     - `outfile_template`: `{subfolderid}-{fileid}{workflowname}_{date:hhMM}-` → e.g. `dogs-puppies-rni52my_workflow_1430-`
     - `outfolder_template`: `{date:yyyy_MM_dd}` → e.g. `2026_05_01`
+- **Sort & Filter section** (collapsible) — controls which files populate the `image` dropdown for the currently selected subfolder:
+  - **Sort by**: `Date-time` (default, file modified time) or `Filename` (alphabetical).
+  - **Order**: `Descending` (default — newest first / Z→A) or `Ascending` (oldest first / A→Z).
+  - **Filter**: glob-style wildcard, e.g. `*ship*` matches any filename containing "ship" (case-insensitive). Empty = no filtering.
+  - UI-only state (like "After generate") — not sent to Python as a node input; resolved server-side on every folder/subfolder refresh.
+  - "After generate" cycling and the Archive button's "advance to next image" both operate on the filtered/sorted list.
 - **Show Preview** — toggleable fixed-height preview (the node's height stays constant regardless of the loaded image's aspect ratio).
 - **After generate** — standard ComfyUI "control after generate" cycling (`fixed` / `increment` / `decrement` / `randomize`) so you can batch-process a folder.
 - **`fileid`** output — 5-char base36 hash of the filename (filename-safe, deterministic). Folder path is *not* part of the hash — same filename in two folders → same `fileid`. The widget itself is hidden but still serialized so `%LoadImagePlus.fileid%` works in `filename_prefix`.
