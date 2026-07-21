@@ -1,6 +1,6 @@
 # MoBo Nodes
 
-Custom utility nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Focused on image loading, aspect ratio management, visual cropping + masking, and filename composition — filling gaps not covered by built-in nodes.
+Custom utility nodes for [ComfyUI](https://github.com/comfyanonymous/ComfyUI). Focused on image loading, aspect ratio management, visual cropping + masking, filename composition, and keyword-gated LoRA stacking for dual high/low (Wan 2.2-style) models — filling gaps not covered by built-in nodes.
 
 **Zero dependencies** — uses only standard ComfyUI types (IMAGE, MASK, INT, FLOAT, STRING). No external node packs required.
 
@@ -25,6 +25,8 @@ Restart ComfyUI. All nodes appear under the **MoBo Nodes** category.
 | **Interactive Crop** | `InteractiveCrop` | Full-screen popup editor: crop, mask, rotate, flip, pad |
 | Filename Builder | `FilenameBuilder` | Compose filenames + folders from `{variable}` templates |
 | **String Selector Plus** | `StringSelectorPlus` | Pick a line from a list, output the line + index, expose the line as a widget for filename use |
+| **Keyword LoRA Stacker (High/Low)** | `KeywordLoraStacker` | Build dual high/low LORA_STACKs from keyword-gated rows matched against the prompt |
+| Apply Keyword LoRA Stack (High/Low) | `ApplyKeywordLoraStack` | Patch high/low models (+ optional clip, deduped) with the two stacks |
 
 ---
 
@@ -267,6 +269,54 @@ String Selector Plus ┼─→ Text Index Switch (negative variants) ─→ CLIP
        SaveImage filename_prefix:  base_%StringSelectorPlus.selected%_%date:yyyyMMdd%
        → base_VariantName_20260501.mp4
 ```
+
+---
+
+### Keyword LoRA Stacker (High/Low)
+
+Build **two** LORA_STACKs — one for the high-noise model, one for the low (Wan 2.2-style) — from a dynamic list of LoRA rows, each gated by optional keyword(s) matched against the prompt. Define your keyword → LoRA library once; feed each segment of a chained i2v workflow its own prompt and the right LoRA combination self-selects.
+
+| | |
+|---|---|
+| **Required** | `prompt` (STRING, multiline), `stack_keyword` (STRING) |
+| **Optional** | `lora_stack_high` (LORA_STACK), `lora_stack_low` (LORA_STACK), dynamic `lora_N` rows |
+| **Outputs** | `lora_stack_high` (LORA_STACK), `lora_stack_low` (LORA_STACK), `prompt` (STRING, passthrough), `loaded` (STRING) |
+
+**Matching rules:**
+
+- Each row has an on/off toggle, a keyword field, and a high + low LoRA (each with its own strength).
+- A row fires only if it's toggled **on** AND its keyword appears in `prompt` (case-insensitive substring). Blank keyword = always on. Separate multiple keywords with `,` `;` or newline for OR matching.
+- `stack_keyword` is a node-level gate: if set and not matched, *no* rows apply and incoming stacks pass through unchanged.
+- Incoming `lora_stack_high` / `lora_stack_low` are concatenated with matched rows — so multiple stackers chain cleanly, and nothing upstream is silently dropped.
+- `loaded` outputs a newline list of what was stacked this run (debug / filename use).
+- Uses the de-facto standard LORA_STACK format (`(name, strength_model, strength_clip)` tuples), so the outputs interoperate with other stack-aware nodes.
+
+**Canvas widget** (rgthree Power Lora Loader style, self-contained — no rgthree dependency):
+
+- Each row draws as three lines: toggle + keyword, `H` high-LoRA + strength, `L` low-LoRA + strength.
+- LoRA name slots open a **filterable chooser** (type to search).
+- Strength supports click-drag scrub, ◀/▶ steppers, and click-to-type.
+- Picking one of high/low **auto-fills the other by name** (high↔low match), if empty.
+- Right-click a row for the context menu (enable/disable, move up/down, remove); `➕ Add LoRA` button appends rows.
+- Rows persist name-based in `node.properties.moboLoraRows`, robust across save/load.
+
+---
+
+### Apply Keyword LoRA Stack (High/Low)
+
+The counterpart applier: patches the high/low models (and optionally the clip) with the two stacks.
+
+| | |
+|---|---|
+| **Required** | `model_high` (MODEL), `model_low` (MODEL) |
+| **Optional** | `clip` (CLIP), `lora_stack_high` (LORA_STACK), `lora_stack_low` (LORA_STACK) |
+| **Outputs** | `model_high` (MODEL), `model_low` (MODEL), `clip` (CLIP) |
+
+- `model_high` is patched with `lora_stack_high`, `model_low` with `lora_stack_low` — model weights only.
+- If a `clip` is connected, it's patched **once per unique LoRA across both stacks** (deduped by name) — there's one text encoder for two models, so the LoRA's text-encoder delta isn't double-applied.
+- Patches fresh clones every call — feed the same untouched base models/clip into every segment for fully independent per-segment LoRA combos with no accumulation.
+- LoRA state-dicts are cached in memory, so repeated runs / multiple segments don't re-read the same files from disk.
+- Accepts stacks from any LORA_STACK-producing node, not just the Keyword LoRA Stacker.
 
 ---
 
